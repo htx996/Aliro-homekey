@@ -102,6 +102,16 @@ static esp_err_t init_nvs(void)
 {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        /*
+         * This erases every Matter fabric, every Aliro credential, and this
+         * project's own configuration -- not a narrow cleanup. It used to do
+         * that in total silence, which is how a wiped fabric table read as an
+         * unexplained "why did Apple Home lose the device" instead of what it
+         * actually was. See issue #9.
+         */
+        ESP_LOGE(k_tag, "NVS is full or a version mismatch was found (%s) -- erasing the whole partition. "
+                        "Every Matter fabric, Aliro credential, and saved setting is about to be lost.",
+                 esp_err_to_name(err));
         ESP_ERROR_CHECK(nvs_flash_erase());
         err = nvs_flash_init();
     }

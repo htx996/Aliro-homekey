@@ -1,5 +1,17 @@
 # Name,   Type, SubType, Offset,  Size, Flags
-nvs,      data, nvs,     ,        0xC000,
+#
+# nvs is 128 KB, not the 48 KB (0xC000) Espressif's own certification docs
+# call the minimum "for a single endpoint with a group cluster" -- and the
+# same 48 KB their own Aliro+Matter reference example ships. That number is
+# a single-fabric floor; this project's whole premise is Aliro working
+# across Apple, Google and Samsung at once, and a device that's actually
+# been commissioned into three fabrics simultaneously ran out of it: NVS
+# filled, nvs_flash_init() returned ESP_ERR_NVS_NO_FREE_PAGES, and the
+# fallback in main/app_main.c erased every fabric, credential and setting
+# on the next boot. See issue #9. The extra 80 KB comes out of flash that
+# was simply unallocated on the 4 MB layout below -- the OTA slots are
+# untouched.
+nvs,      data, nvs,     ,        0x20000,
 otadata,  data, ota,     ,        0x2000,
 phy_init, data, phy,     ,        0x1000,
 ota_0,    app,  ota_0,   ,        0x1E0000,
