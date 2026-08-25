@@ -165,6 +165,20 @@ esp_err_t matter_lock_open_commissioning_window(void);
 esp_err_t matter_lock_release_reader_config(void);
 
 /**
+ * @brief Push a new device name into the live Matter NodeLabel attribute.
+ *
+ * The name seeded at node creation (from settings, at the time) only ever
+ * applies to a brand-new attribute store -- once the device has been
+ * commissioned once, that seed is ignored on every later boot and a rename
+ * in settings has nowhere to go. Call this right after settings saves a new
+ * device name so the change actually reaches what Home apps display.
+ *
+ * A no-op if @p name already matches the live NodeLabel, so it never
+ * clobbers a rename a controller made directly.
+ */
+esp_err_t matter_lock_set_device_name(const char *name);
+
+/**
  * @brief Publish a lock state change to Matter.
  *
  * Safe to call from any task, including the reader task straight after a tap.

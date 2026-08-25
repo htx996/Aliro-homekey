@@ -316,6 +316,10 @@ Aliro-homekey/
 
 Contributions are welcome — NFC drivers, board support, wallet testing, protocol research, documentation, and bug fixes are all useful. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) and check the roadmap before opening a pull request.
 
+## Contributors
+
+- [**grapefizz**](https://github.com/grapefizz) — restored Apple Wallet Express Mode polling ([#1](https://github.com/Ruhanpaco/Aliro-homekey/pull/1), [#3](https://github.com/Ruhanpaco/Aliro-homekey/pull/3)), fixed Apple Home status resuming after a restart ([#4](https://github.com/Ruhanpaco/Aliro-homekey/pull/4)), and added Matter lock activity event publishing ([#5](https://github.com/Ruhanpaco/Aliro-homekey/pull/5)).
+
 ## Important disclaimer
 
 Aliro HomeKey is a **research and hobbyist implementation**, not certified for production access control.

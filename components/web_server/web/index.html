@@ -404,16 +404,7 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
                 <path stroke-linecap="round" stroke-linejoin="round"
                       d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-              </svg>System
-            </a>
-          </li>
-          <li class="my-1" role="menuitem">
-            <a href="#/feedback" data-page="feedback" class="text-lg flex items-center">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none"
-                   viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                      d="M15 17h5l-1.4-1.4a2 2 0 01-.6-1.4V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5m6 0a3 3 0 11-6 0m6 0H9"/>
-              </svg>Feedback
+              </svg>Config
             </a>
           </li>
           <li class="my-1" role="menuitem">
@@ -552,8 +543,13 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
                     <div class="v" id="matter_manual">—</div>
                   </div>
                   <div class="flex gap-2">
-                    <a id="matter_qr" class="btn btn-sm btn-outline flex-1" target="_blank" rel="noopener">Show QR</a>
+                    <button type="button" class="btn btn-sm btn-outline flex-1" id="matter_qr">Show QR</button>
                     <button type="button" class="btn btn-sm btn-outline flex-1" id="matter_pair">Reopen pairing</button>
+                  </div>
+                  <div id="matter_qr_frame" class="hidden">
+                    <iframe id="matter_qr_iframe" title="Matter pairing QR code"
+                      style="width:100%;aspect-ratio:1/1;max-width:280px;display:block;margin:0 auto;border:0;border-radius:8px"
+                      loading="lazy"></iframe>
                   </div>
                 </div>
                 <p class="text-xs text-muted">A controller commissions this lock over Bluetooth, then
@@ -686,81 +682,6 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
           </div>
         </div>
 
-        <!-- -------------------------------------------------- Feedback -->
-        <div class="page" data-page="feedback">
-          <div class="page-head">
-            <h1>Feedback</h1>
-            <p>An optional status LED and buzzer, driven by the same tap and lock events MQTT publishes.</p>
-          </div>
-
-          <div class="card">
-            <div class="card-body space-y-6">
-                <div>
-                  <h3 class="card-title">Status LED</h3>
-                  <p class="caption">Mirrors the current lock state: on while unlocked, off while locked.</p>
-                </div>
-              <div class="form-control">
-                <label class="label" for="led_enabled">
-                  <span class="label-text">Enable status LED</span>
-                  <input id="led_enabled" name="feedback.led_enabled" type="checkbox" class="toggle">
-                </label>
-              </div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="form-control">
-                  <label class="label" for="led_gpio"><span class="label-text text-sm">GPIO</span></label>
-                  <select id="led_gpio" name="feedback.led_gpio" data-pin="out"
-                          class="select select-sm input-bordered w-full"></select>
-                </div>
-                <div class="form-control">
-                  <label class="label" for="led_active_low">
-                    <span class="label-text text-sm">Active low</span>
-                    <input id="led_active_low" name="feedback.led_active_low" type="checkbox" class="toggle">
-                  </label>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="card mt-4">
-            <div class="card-body space-y-6">
-                <div>
-                  <h3 class="card-title">Buzzer</h3>
-                  <p class="caption">Plays an RTTTL tune on a granted or denied tap, on its own task -- it never
-                  holds up the next one.</p>
-                </div>
-              <div class="form-control">
-                <label class="label" for="buzzer_enabled">
-                  <span class="label-text">Enable buzzer</span>
-                  <input id="buzzer_enabled" name="feedback.buzzer_enabled" type="checkbox" class="toggle">
-                </label>
-              </div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="form-control">
-                  <label class="label" for="buzzer_gpio"><span class="label-text text-sm">GPIO</span></label>
-                  <select id="buzzer_gpio" name="feedback.buzzer_gpio" data-pin="out"
-                          class="select select-sm input-bordered w-full"></select>
-                </div>
-                <div class="form-control">
-                  <label class="label" for="buzzer_gain"><span class="label-text text-sm">Gain (%)</span></label>
-                  <input id="buzzer_gain" name="feedback.buzzer_gain" type="number" min="0" max="100" step="5"
-                         class="input input-sm input-bordered w-full">
-                </div>
-              </div>
-              <div class="form-control">
-                <label class="label" for="tune_granted"><span class="label-text text-sm">Granted tune (RTTTL)</span></label>
-                <input id="tune_granted" name="feedback.tune_granted" type="text" maxlength="191"
-                       placeholder="granted:d=8,o=6,b=180:c,e" class="input input-sm input-bordered w-full font-mono">
-              </div>
-              <div class="form-control">
-                <label class="label" for="tune_denied"><span class="label-text text-sm">Denied tune (RTTTL)</span></label>
-                <input id="tune_denied" name="feedback.tune_denied" type="text" maxlength="191"
-                       placeholder="denied:d=4,o=4,b=120:a" class="input input-sm input-bordered w-full font-mono">
-              </div>
-              <p class="text-xs text-muted">Any RTTTL string works -- the same format used by countless ringtone
-              archives and ESPHome's <code>rtttl</code> platform. Leave a tune blank to stay silent for that event.</p>
-            </div>
-          </div>
-        </div>
 
         <!-- --------------------------------------------------- Actions -->
         <div class="page" data-page="actions">
@@ -820,11 +741,11 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
           </div>
         </div>
 
-        <!-- ------------------------------------------------------ Misc -->
+        <!-- ------------------------------------------------------ Config -->
         <div class="page" data-page="misc">
           <div class="page-head">
-            <h1>Misc</h1>
-            <p>Identity, NFC wiring and network.</p>
+            <h1>Config</h1>
+            <p>Identity, NFC wiring, feedback and network.</p>
           </div>
 
           <div class="card">
@@ -954,6 +875,74 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
           </div>
 
           <div class="card mt-4">
+            <div class="card-body space-y-6">
+                <div>
+                  <h3 class="card-title">Status LED</h3>
+                  <p class="caption">Mirrors the current lock state: on while unlocked, off while locked.</p>
+                </div>
+              <div class="form-control">
+                <label class="label" for="led_enabled">
+                  <span class="label-text">Enable status LED</span>
+                  <input id="led_enabled" name="feedback.led_enabled" type="checkbox" class="toggle">
+                </label>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-control">
+                  <label class="label" for="led_gpio"><span class="label-text text-sm">GPIO</span></label>
+                  <select id="led_gpio" name="feedback.led_gpio" data-pin="out"
+                          class="select select-sm input-bordered w-full"></select>
+                </div>
+                <div class="form-control">
+                  <label class="label" for="led_active_low">
+                    <span class="label-text text-sm">Active low</span>
+                    <input id="led_active_low" name="feedback.led_active_low" type="checkbox" class="toggle">
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card mt-4">
+            <div class="card-body space-y-6">
+                <div>
+                  <h3 class="card-title">Buzzer</h3>
+                  <p class="caption">Plays an RTTTL tune on a granted or denied tap, on its own task -- it never
+                  holds up the next one.</p>
+                </div>
+              <div class="form-control">
+                <label class="label" for="buzzer_enabled">
+                  <span class="label-text">Enable buzzer</span>
+                  <input id="buzzer_enabled" name="feedback.buzzer_enabled" type="checkbox" class="toggle">
+                </label>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-control">
+                  <label class="label" for="buzzer_gpio"><span class="label-text text-sm">GPIO</span></label>
+                  <select id="buzzer_gpio" name="feedback.buzzer_gpio" data-pin="out"
+                          class="select select-sm input-bordered w-full"></select>
+                </div>
+                <div class="form-control">
+                  <label class="label" for="buzzer_gain"><span class="label-text text-sm">Gain (%)</span></label>
+                  <input id="buzzer_gain" name="feedback.buzzer_gain" type="number" min="0" max="100" step="5"
+                         class="input input-sm input-bordered w-full">
+                </div>
+              </div>
+              <div class="form-control">
+                <label class="label" for="tune_granted"><span class="label-text text-sm">Granted tune (RTTTL)</span></label>
+                <input id="tune_granted" name="feedback.tune_granted" type="text" maxlength="191"
+                       placeholder="granted:d=8,o=6,b=180:c,e" class="input input-sm input-bordered w-full font-mono">
+              </div>
+              <div class="form-control">
+                <label class="label" for="tune_denied"><span class="label-text text-sm">Denied tune (RTTTL)</span></label>
+                <input id="tune_denied" name="feedback.tune_denied" type="text" maxlength="191"
+                       placeholder="denied:d=4,o=4,b=120:a" class="input input-sm input-bordered w-full font-mono">
+              </div>
+              <p class="text-xs text-muted">Any RTTTL string works -- the same format used by countless ringtone
+              archives and ESPHome's <code>rtttl</code> platform. Leave a tune blank to stay silent for that event.</p>
+            </div>
+          </div>
+
+          <div class="card mt-4">
             <div class="card-body space-y-4">
                 <div>
                   <h3 class="card-title">Connect to Wi-Fi</h3>
@@ -964,9 +953,9 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
               <div class="flex flex-wrap gap-2 items-end">
                 <div class="form-control grow min-w-48">
                   <label class="label" for="scan_list"><span class="label-text text-sm">Networks in range</span></label>
-                  <select id="scan_list" class="select select-sm select-bordered w-full">
-                    <option value="">— scan to see what is nearby —</option>
-                  </select>
+                  <input id="scan_list" list="scan_ssids" autocomplete="off" placeholder="Scanning…"
+                         class="input input-sm input-bordered w-full">
+                  <datalist id="scan_ssids"></datalist>
                 </div>
                 <button type="button" id="btn_scan" class="btn btn-sm">Scan</button>
               </div>
@@ -1156,9 +1145,10 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
-const PAGES = {info:"Info", mqtt:"MQTT", actions:"Actions", misc:"System",
-               feedback:"Feedback", ota:"OTA Update"};
+const PAGES = {info:"Info", mqtt:"MQTT", actions:"Actions", misc:"Config",
+               ota:"OTA Update"};
 let caps = null;
+let matterQrUrl = "";
 let ws = null, wsReconnectTimer = null, wsBackoffMs = 1500;
 /* The last full /api/status. The WebSocket carries deltas, and rendering needs
    the whole object, so keep it rather than refetching on every tick. */
@@ -1290,11 +1280,18 @@ try { applyTheme(localStorage.getItem("aliro-theme") || "dracula"); } catch { ap
 
 /* --- router ------------------------------------------------------------ */
 
+let didAutoScan = false;
 function route() {
   const name = (location.hash.replace(/^#\/?/, "") || "info").split("/")[0];
   const page = name in PAGES ? name : "info";
   for (const el of document.querySelectorAll(".page"))
     el.classList.toggle("active", el.dataset.page === page);
+  /* Scan as soon as the networks field is on screen, once per page load,
+   * instead of making the Scan button the only way to fill it. */
+  if (page === "misc" && !didAutoScan) {
+    didAutoScan = true;
+    scanNetworks();
+  }
   for (const a of document.querySelectorAll(".menu a")) {
     // Upstream marks the active item with DaisyUI's bg-neutral.
     a.classList.toggle("bg-neutral", a.dataset.page === page);
@@ -1479,7 +1476,13 @@ function renderStatus(s) {
     $("matter_reader_reset_row").classList.toggle("hidden", !s.matter.reader_configured);
     $("matter_manual").textContent = s.matter.manual_code || "—";
     $("matter_pairing").classList.toggle("hidden", !s.matter.qr_url);
-    if (s.matter.qr_url) $("matter_qr").href = s.matter.qr_url;
+    matterQrUrl = s.matter.qr_url || "";
+    $("matter_qr").disabled = !matterQrUrl;
+    if (!matterQrUrl) {
+      $("matter_qr_frame").classList.add("hidden");
+      $("matter_qr_iframe").removeAttribute("src");
+      $("matter_qr").textContent = "Show QR";
+    }
   }
 
   $("lock_badge").className = `badge badge-${s.reader.locked ? "success" : "warning"}`;
@@ -1586,6 +1589,22 @@ $("form").addEventListener("submit", async (e) => {
 $("unlock").addEventListener("click", async () => {
   try { await api("/api/unlock", {method: "POST"}); toast("Unlocked."); refreshStatus(); }
   catch (err) { toast(err.message, "error"); }
+});
+
+$("matter_qr").addEventListener("click", () => {
+  if (!matterQrUrl) return;
+  const frame = $("matter_qr_frame");
+  const showing = frame.classList.toggle("hidden") === false;
+  $("matter_qr").textContent = showing ? "Hide QR" : "Show QR";
+  if (showing) {
+    /* Loaded on demand rather than as soon as pairing is possible -- this
+     * page is fetched from project-chip.github.io, an external site, and
+     * there is no reason to send it the pairing payload before the user
+     * actually asks to see the code. */
+    $("matter_qr_iframe").src = matterQrUrl;
+  } else {
+    $("matter_qr_iframe").removeAttribute("src");
+  }
 });
 
 $("matter_pair").addEventListener("click", async () => {
@@ -1722,36 +1741,42 @@ function signalLabel(rssi) {
   return "▂___";
 }
 
-$("btn_scan").onclick = async () => {
-  const btn = $("btn_scan"), list = $("scan_list");
+/* Keyed by SSID so the password field can react as the user types or picks
+ * from the datalist, the same way the old <select>'s dataset did. */
+let scanResults = new Map();
+
+async function scanNetworks() {
+  const btn = $("btn_scan"), field = $("scan_list"), list = $("scan_ssids");
   btn.disabled = true;
   btn.textContent = "Scanning…";
+  field.placeholder = "Scanning…";
   try {
     const { networks } = await api("/api/wifi_scan");
+    scanResults = new Map(networks.map((net) => [net.ssid, net]));
     list.replaceChildren();
-    if (!networks.length) {
-      list.append(new Option("— nothing in range —", ""));
-    } else {
-      list.append(new Option("— pick a network —", ""));
-      for (const net of networks) {
-        const opt = new Option(`${signalLabel(net.rssi)}  ${net.ssid}${net.open ? "" : " 🔒"}`, net.ssid);
-        opt.dataset.open = net.open ? "1" : "";
-        list.append(opt);
-      }
+    for (const net of networks) {
+      const opt = new Option(net.ssid);
+      opt.label = `${signalLabel(net.rssi)}  ${net.ssid}${net.open ? "" : " 🔒"}`;
+      list.append(opt);
     }
+    field.placeholder = networks.length ? "Type to search, or pick from the list" : "— nothing in range —";
     toast(`${networks.length} network(s) found`);
   } catch (err) {
+    field.placeholder = "Scan failed";
     toast("Scan failed: " + err.message, "error");
   } finally {
     btn.disabled = false;
     btn.textContent = "Scan";
   }
-};
+}
+$("btn_scan").onclick = scanNetworks;
 
-/* An open network has nothing to type, so stop asking for it. */
-$("scan_list").onchange = () => {
-  const opt = $("scan_list").selectedOptions[0];
-  $("join_pass_row").classList.toggle("hidden", Boolean(opt && opt.dataset.open));
+/* An open network has nothing to type, so stop asking for it. Fires on every
+ * keystroke, not just a pick from the list, so typing a known open SSID by
+ * hand also hides the password field. */
+$("scan_list").oninput = () => {
+  const net = scanResults.get($("scan_list").value);
+  $("join_pass_row").classList.toggle("hidden", Boolean(net && net.open));
 };
 
 $("btn_join").onclick = async () => {

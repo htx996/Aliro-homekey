@@ -68,6 +68,12 @@ esp_err_t matter_lock_release_reader_config(void)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+esp_err_t matter_lock_set_device_name(const char *name)
+{
+    (void)name;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 esp_err_t matter_lock_get_fabrics(matter_lock_fabric_t *out, size_t max, size_t *count)
 {
     (void)out;

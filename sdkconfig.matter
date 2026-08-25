@@ -15,6 +15,19 @@ CONFIG_BT_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLE_CONN_REATTEMPT=n
 
+# esp-matter defaults this on: the moment the first fabric commissions, it
+# calls esp_bt_mem_release() and hands BLE's RAM to the general heap --
+# irreversible for the boot session, by Espressif's own documentation.
+# DriveBLEState() does have a path to re-init BLE for a later commissioning
+# window, but it cannot succeed once that memory is gone, and the failure
+# surfaces as a silent inability to re-advertise rather than a clear error.
+# That matches two reported symptoms exactly: a second ecosystem failing to
+# commission once one fabric already exists, and removing + re-adding a
+# fabric failing until the device is rebooted. See issues #8 and #10. The
+# ESP32 has the RAM to keep BLE resident; trading that for reliable
+# re-commissioning is worth it here.
+CONFIG_USE_BLE_ONLY_FOR_COMMISSIONING=n
+
 # Nothing on this device is a BLE client or scanner. Dropping the roles it
 # does not use is ~30 KB.
 CONFIG_BT_NIMBLE_ROLE_CENTRAL=n

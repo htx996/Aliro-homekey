@@ -658,6 +658,35 @@ void pn532_update(void)
      * which activate() issues on every pass. */
 }
 
+/*
+ * How many consecutive comms failures before attempting a full re-init.
+ *
+ * Observed on hardware: BT/Wi-Fi radio bring-up can knock the PN532 off the
+ * bus for the rest of a boot -- it stops ACKing anything, forever, with
+ * nothing in this polling loop ever trying hardware_reset() again. At the
+ * ~100 ms cadence activate() runs on, this many failures is about two
+ * seconds: long enough that a one-off comms hiccup won't trigger a needless
+ * reset, short enough that a tap doesn't wait long for the reader to recover.
+ */
+#define PN532_RECOVERY_THRESHOLD 20
+
+static uint32_t s_consecutive_failures;
+
+static void attempt_recovery(pn532_t *dev)
+{
+    ESP_LOGW(k_tag, "%u consecutive comms failures; re-initializing the reader",
+             (unsigned)PN532_RECOVERY_THRESHOLD);
+    dev->ready = false;
+    s_consecutive_failures = 0;
+    /* bus_init() inside here is a once-per-boot no-op past the first call --
+     * this only repeats the chip-facing half: reset pulse, wake sequence,
+     * firmware handshake, and the RF/SAM/ECP configuration that followed it
+     * the first time. */
+    if (pn532_start(dev) != ESP_OK) {
+        ESP_LOGE(k_tag, "recovery failed; will retry after %u more failures", (unsigned)PN532_RECOVERY_THRESHOLD);
+    }
+}
+
 bool pn532_activate(void)
 {
     pn532_t *dev = &s_pn532;
@@ -671,7 +700,14 @@ bool pn532_activate(void)
 
     const esp_err_t err =
         pn532_command(dev, CMD_IN_LIST_PASSIVE_TARGET, params, sizeof(params), found, sizeof(found), &found_len, 100);
-    if (err != ESP_OK || found_len < 1) {
+    if (err != ESP_OK) {
+        if (++s_consecutive_failures >= PN532_RECOVERY_THRESHOLD) {
+            attempt_recovery(dev);
+        }
+        return false;
+    }
+    s_consecutive_failures = 0;
+    if (found_len < 1) {
         return false;
     }
     if (found[0] == 0) {

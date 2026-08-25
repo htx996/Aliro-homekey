@@ -29,6 +29,7 @@
 
 #include <app/AppConfig.h>
 #include <app/clusters/door-lock-server/door-lock-server.h>
+#include <clusters/BasicInformation/Ids.h>
 #include <app/server/CommissioningWindowManager.h>
 #include <app/server/Server.h>
 #include <credentials/FabricTable.h>
@@ -621,6 +622,39 @@ extern "C" esp_err_t matter_lock_release_reader_config(void)
      * and NVS rather than the cluster, and the web server wants to report
      * whether it worked rather than that it was scheduled. */
     return release_reader_config("asked to over the web UI");
+}
+
+extern "C" esp_err_t matter_lock_set_device_name(const char *name)
+{
+    if (!s_running) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!name || name[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* Endpoint 0 carries Basic Information -- fixed by the Matter spec, not
+     * something this device chooses. Using chip's own generated IDs here
+     * rather than esp_matter::cluster::basic_information's, since those
+     * aren't pulled in by anything this file already includes. */
+    constexpr uint16_t kRootEndpointId = 0;
+    constexpr uint32_t kClusterId = chip::app::Clusters::BasicInformation::Id;
+    constexpr uint32_t kNodeLabelId = chip::app::Clusters::BasicInformation::Attributes::NodeLabel::Id;
+
+    attribute_t *attr = attribute::get(kRootEndpointId, kClusterId, kNodeLabelId);
+    if (!attr) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    size_t name_len = strlen(name);
+    esp_matter_attr_val_t current = esp_matter_invalid(nullptr);
+    if (attribute::get_val(attr, &current) == ESP_OK && current.type == ESP_MATTER_VAL_TYPE_CHAR_STRING &&
+        current.val.a.s == name_len && current.val.a.b && memcmp(current.val.a.b, name, name_len) == 0) {
+        return ESP_OK; /* already matches -- e.g. a controller already set this */
+    }
+
+    esp_matter_attr_val_t new_val = esp_matter_char_str(const_cast<char *>(name), (uint16_t)name_len);
+    return attribute::update(kRootEndpointId, kClusterId, kNodeLabelId, &new_val);
 }
 
 static void report_lock_state(intptr_t locked)

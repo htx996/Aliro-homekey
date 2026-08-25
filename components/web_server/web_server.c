@@ -832,6 +832,13 @@ static esp_err_t handle_post_config(httpd_req_t *req)
         return send_json_response(req, false, NULL, reason[0] ? reason : "could not save configuration", NULL);
     }
 
+    /* Best-effort: push the (possibly new) name into the live Matter
+     * NodeLabel attribute. The seed used at node creation only ever applies
+     * to a brand-new attribute store, so this is the only path that reaches
+     * a device already commissioned. Not fatal if Matter isn't running or
+     * the name didn't change -- matter_lock_set_device_name() no-ops both. */
+    (void)matter_lock_set_device_name(candidate.device_name);
+
     /* Publish config changed event */
     cJSON *event = cJSON_CreateObject();
     cJSON_AddStringToObject(event, "event", "config_changed");

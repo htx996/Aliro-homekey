@@ -161,6 +161,10 @@ copyright line in the file, and add the project to [NOTICE.md](NOTICE.md).
 Parts of this codebase are adapted from MIT-licensed work and that attribution
 is a licence condition, not a courtesy — see NOTICE.md for what and where.
 
+## Contributors
+
+- [**grapefizz**](https://github.com/grapefizz) — restored Apple Wallet Express Mode polling ([#1](https://github.com/Ruhanpaco/Aliro-homekey/pull/1), [#3](https://github.com/Ruhanpaco/Aliro-homekey/pull/3)), fixed Apple Home status resuming after a restart ([#4](https://github.com/Ruhanpaco/Aliro-homekey/pull/4)), and added Matter lock activity event publishing ([#5](https://github.com/Ruhanpaco/Aliro-homekey/pull/5)).
+
 ## Where to start
 
 - **A tap that fails.** Serial output from a refused or misread credential is
