@@ -1392,17 +1392,43 @@ function applyMetrics(m) {
   renderStatus(lastStatus);
 }
 
-function onTap(t) {
-  const who = t.credential || (t.key_slot ? `key slot ${t.key_slot}` : "an unknown device");
-  if (t.granted) {
-    toast(`Opened for ${who}.`);
-  } else {
-    toast(`Refused ${who}: ${t.reason || "no reason given"}`, "error");
+/*
+ * A refusal is one of two different events and this used to report both the
+ * same way.
+ *
+ * Either the reader completed a transaction and turned down the credential it
+ * was shown, or the transaction errored before there was a credential to
+ * judge. Only the first is a decision about a device. The second is a failure
+ * of the exchange, and saying "Refused an unknown device" there invents a
+ * device that was never identified and blames it -- which is what sent issue
+ * #13 looking for a credential problem that did not exist.
+ *
+ * `detail` carries the esp_err_t name and is set only on the second kind, so
+ * its presence is what separates them.
+ */
+function tapSubject(t) {
+  if (t.credential) return t.credential;
+  if (t.key_slot) return `key slot ${t.key_slot}`;
+  return "";
+}
+
+function tapSummary(t) {
+  const who = tapSubject(t);
+  if (t.granted) return `Opened for ${who || "a credential"}`;
+  if (t.detail) {
+    /* No subject on purpose: nothing was identified, so there is nobody to
+       name. The error code is the whole content of the message. */
+    return `Tap failed before any credential was read (${t.detail})`;
   }
+  return `Refused ${who || "a credential"}${t.reason ? `: ${t.reason}` : ""}`;
+}
+
+function onTap(t) {
+  toast(tapSummary(t) + ".", t.granted ? undefined : "error");
   const line = $("last_tap");
   if (line) {
     const when = new Date().toLocaleTimeString();
-    line.textContent = `${when} — ${t.granted ? "granted" : "refused"}: ${who}${t.reason ? ` (${t.reason})` : ""}`;
+    line.textContent = `${when} - ${tapSummary(t)}`;
     line.className = `text-xs ${t.granted ? "text-success" : "text-error"}`;
   }
   if (lastStatus) refreshStatus();

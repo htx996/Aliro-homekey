@@ -47,6 +47,17 @@ typedef struct {
     const char *reason;       /*!< TAP: why it was refused, or "granted" */
     char credential[24];      /*!< TAP: label, or "" when unknown */
     char key_slot_hex[17];    /*!< TAP: key slot as hex, or "" */
+    /*
+     * TAP: the esp_err_t name when the transaction itself errored, else "".
+     *
+     * A refusal has two very different shapes and they used to look identical
+     * downstream. Either the reader completed a transaction and turned down
+     * the credential it was shown, or the transaction never got far enough to
+     * see one. Only the second kind has an error code, and it is the only
+     * thing that says what actually went wrong -- so it travels with the
+     * event instead of living solely in the serial log. See issue #13.
+     */
+    char detail[24];
 } access_event_t;
 
 /**

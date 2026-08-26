@@ -578,6 +578,7 @@ static void on_access_event(const access_event_t *event, void *ctx)
         cJSON_AddStringToObject(root, "reason", event->reason ? event->reason : "");
         cJSON_AddStringToObject(root, "credential", event->credential);
         cJSON_AddStringToObject(root, "key_slot", event->key_slot_hex);
+        cJSON_AddStringToObject(root, "detail", event->detail);
     } else {
         cJSON_AddStringToObject(root, "type", "lock");
         cJSON_AddBoolToObject(root, "locked", event->locked);

@@ -26,6 +26,7 @@
 #include <esp_ota_ops.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <esp_partition.h>
 #include <nvs_flash.h>
 #include <sdkconfig.h>
 
@@ -98,8 +99,54 @@ static const char *transport_name(void)
     return s_transport ? s_transport->name : "none";
 }
 
+/*
+ * The size partitions.csv asks for. Compared against what is actually on the
+ * flash, because those two disagree after an OTA and the difference is what
+ * silently erased a user's configuration.
+ */
+#define EXPECTED_NVS_SIZE 0x20000
+
+/*
+ * An OTA replaces the application image and nothing else. It never rewrites
+ * the partition table, so a build whose fix lives in that table cannot deliver
+ * it over the air -- the new app boots on the old layout and has no idea.
+ *
+ * That is not hypothetical. v0.6 grew nvs from 48 KB to 128 KB to fix issue
+ * #9, and because the offsets in partitions.csv are implicit, growing nvs
+ * moved otadata and both app slots down the flash as well. A board that took
+ * that release as an OTA kept v0.5's 48 KB nvs, filled it, and had every
+ * fabric, credential and setting erased by the fallback below -- by the very
+ * release that was supposed to prevent exactly that. Reported in issue #13.
+ *
+ * Nothing here can widen a partition; the layout is fixed at flash time. What
+ * it can do is name the cause before the damage, so the next person reads one
+ * line instead of guessing why their reader forgot everything.
+ */
+static void warn_if_nvs_undersized(void)
+{
+    const esp_partition_t *nvs =
+        esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS, NULL);
+    if (!nvs) {
+        ESP_LOGE(k_tag, "no NVS partition found at all; nothing can be saved this boot");
+        return;
+    }
+    if (nvs->size >= EXPECTED_NVS_SIZE) {
+        return;
+    }
+
+    ESP_LOGE(k_tag, "NVS is %u KB, but this firmware was built for %u KB.", (unsigned)(nvs->size / 1024),
+             (unsigned)(EXPECTED_NVS_SIZE / 1024));
+    ESP_LOGE(k_tag, "This board is running an old partition table, which is what an OTA from v0.5 or");
+    ESP_LOGE(k_tag, "earlier leaves behind: the app updated, the partition table did not. Commissioning");
+    ESP_LOGE(k_tag, "into more than one ecosystem will exhaust NVS and erase every fabric, credential");
+    ESP_LOGE(k_tag, "and setting on the next boot. See issue #9.");
+    ESP_LOGE(k_tag, "Fix it by flashing <target>.firmware.factory.bin at 0x0. An OTA cannot.");
+}
+
 static esp_err_t init_nvs(void)
 {
+    warn_if_nvs_undersized();
+
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         /*

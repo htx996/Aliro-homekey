@@ -365,6 +365,12 @@ static void tap_event(bool granted, const char *reason, const char *label, const
 {
     access_event_t event = {.type = ACCESS_EVENT_TAP, .granted = granted, .reason = reason};
     snprintf(event.credential, sizeof(event.credential), "%s", label ? label : "");
+    /* Only a failed transaction carries one; a credential that was seen and
+     * turned down did not error, and reporting ESP_OK there would read as if
+     * something had gone wrong. */
+    if (result->err != ESP_OK) {
+        snprintf(event.detail, sizeof(event.detail), "%s", esp_err_to_name(result->err));
+    }
     for (size_t i = 0; i < result->key_slot_len && i * 2 + 2 < sizeof(event.key_slot_hex); i++) {
         snprintf(event.key_slot_hex + i * 2, 3, "%02X", result->key_slot[i]);
     }
