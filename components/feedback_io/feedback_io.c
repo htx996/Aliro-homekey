@@ -20,6 +20,7 @@
 #include <driver/ledc.h>
 #include <esp_check.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
@@ -45,9 +46,51 @@ typedef enum {
 static struct {
     feedback_config_t cfg;
     bool led_ready;
+    bool led_denied_ready;
     bool buzzer_ready;
     QueueHandle_t tune_queue;
+    esp_timer_handle_t denied_timer;
 } s_feedback;
+
+/* --- denied LED ------------------------------------------------------------
+ *
+ * The status LED follows lock state, so a refused tap looks exactly like no
+ * tap at all -- both leave it dark. This is the second half of what the
+ * buzzer already does with its two tunes, for installations that want a red
+ * LED rather than noise (issue #13).
+ *
+ * A refused tap is an instant, not a state, so the light is pulsed: on now,
+ * off on a one-shot timer. That keeps it out of the observer callback, which
+ * runs on the reader task and must not sleep.
+ */
+
+static void denied_led_write(bool on)
+{
+    const bool level = s_feedback.cfg.led_denied_active_low ? !on : on;
+    gpio_set_level(s_feedback.cfg.led_denied_gpio, level);
+}
+
+static void denied_led_off(void *arg)
+{
+    (void)arg;
+    denied_led_write(false);
+}
+
+static void denied_led_pulse(void)
+{
+    /* Stop first: a second refusal while the first pulse is still lit would
+     * otherwise be rejected by esp_timer_start_once() as already running, and
+     * the light would go out early -- on the first tap's schedule, not this
+     * one's. Restarting gives every refusal the full time. */
+    (void)esp_timer_stop(s_feedback.denied_timer);
+    denied_led_write(true);
+    const esp_err_t err = esp_timer_start_once(s_feedback.denied_timer, (uint64_t)s_feedback.cfg.led_denied_ms * 1000);
+    if (err != ESP_OK) {
+        /* Never leave it stuck on if the timer refuses to arm. */
+        ESP_LOGW(k_tag, "denied LED timer failed to start: %s", esp_err_to_name(err));
+        denied_led_write(false);
+    }
+}
 
 /* --- RTTTL -----------------------------------------------------------------
  *
@@ -250,11 +293,19 @@ static void on_access_event(const access_event_t *event, void *ctx)
         return;
     }
 
-    if (event->type == ACCESS_EVENT_TAP && s_feedback.buzzer_ready) {
+    if (event->type != ACCESS_EVENT_TAP) {
+        return;
+    }
+
+    if (s_feedback.buzzer_ready) {
         const tune_t which = event->granted ? TUNE_GRANTED : TUNE_DENIED;
         /* Never block the reader task: drop the request rather than wait for
          * queue space if a previous tune is somehow still draining. */
         (void)xQueueSend(s_feedback.tune_queue, &which, 0);
+    }
+
+    if (!event->granted && s_feedback.led_denied_ready) {
+        denied_led_pulse();
     }
 }
 
@@ -274,6 +325,30 @@ esp_err_t feedback_io_start(const feedback_config_t *cfg)
         ESP_RETURN_ON_ERROR(gpio_config(&io), k_tag, "LED GPIO config failed");
         gpio_set_level(cfg->led_gpio, cfg->led_active_low ? 1 : 0); /* starts locked */
         s_feedback.led_ready = true;
+    }
+
+    if (cfg->led_denied_enabled && cfg->led_denied_gpio != APP_CFG_PIN_UNSET) {
+        const gpio_config_t io = {
+            .pin_bit_mask = 1ULL << cfg->led_denied_gpio,
+            .mode = GPIO_MODE_OUTPUT,
+            .pull_up_en = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+        };
+        ESP_RETURN_ON_ERROR(gpio_config(&io), k_tag, "denied LED GPIO config failed");
+
+        const esp_timer_create_args_t timer_args = {
+            .callback = denied_led_off,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "aliro_denied_led",
+        };
+        ESP_RETURN_ON_ERROR(esp_timer_create(&timer_args, &s_feedback.denied_timer), k_tag,
+                            "denied LED timer creation failed");
+
+        /* Written through the same helper the pulse uses, so an active-low
+         * wiring starts dark rather than lit. */
+        s_feedback.led_denied_ready = true;
+        denied_led_write(false);
     }
 
     if (cfg->buzzer_enabled && cfg->buzzer_gpio != APP_CFG_PIN_UNSET) {
@@ -308,7 +383,7 @@ esp_err_t feedback_io_start(const feedback_config_t *cfg)
         }
     }
 
-    if (!s_feedback.led_ready && !s_feedback.buzzer_ready) {
+    if (!s_feedback.led_ready && !s_feedback.led_denied_ready && !s_feedback.buzzer_ready) {
         return ESP_OK; /* nothing configured, nothing to observe */
     }
 

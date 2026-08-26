@@ -48,32 +48,46 @@ config ALIRO_NFC_SPI_CS
 
 config ALIRO_NFC_ECP_BEACON
     bool "Emit the Apple ECP beacon during NFC polling"
-    default n
+    default y
     help
         Broadcasts an 18-byte Apple ECP frame naming this reader and the Aliro
         profile, which is what lets a locked phone offer its credential without
-        the wallet being opened. Without it a tap needs the key picked in
-        Wallet first.
+        the wallet being opened -- Express Mode. Without it a tap needs the key
+        picked in Wallet first.
 
         The PN532 sends it after an empty Type-A poll, using that poll to set up
         the radio and resetting CIU_BitFraming to eight bits before the raw ECP
         frame.
 
-        Off by default again. A rewrite of this code (PR #3, "restore Apple
-        Wallet Express Mode polling") turned the default back on believing it
-        had fixed the desync, but a board running that exact build still hit
-        it on first boot:
+        On by default. This has been off and on before, so the history matters:
+
+        PR #3 ("restore Apple Wallet Express Mode polling") turned it on, and
+        v0.5 shipped that way. A board on that build then hit a bus desync on
+        first boot:
 
             E nfc/pn532: broadcast_ecp(581): ECP transmission failed
             E nfc/pn532: pn532_command(345): 0x4A: no ACK   [repeats forever]
 
         The InCommunicateThru call for the beacon does not get its response
-        inside the timeout, and the bus never recovers -- every
-        InListPassiveTarget after it fails the same way until the chip is
-        reset. No card can be detected in that state, which is worse than the
-        problem the beacon was meant to solve. Diagnosing the actual desync
-        needs a board and a logic analyzer on the SPI/I2C lines; disabling it
-        is what gets a reader working again in the meantime.
+        inside the timeout. At the time nothing ever retried the init sequence,
+        so every InListPassiveTarget after it failed the same way until the
+        chip was power-cycled -- a reader that cannot read any card at all,
+        which is worse than the problem the beacon solves. That is why v0.6
+        defaulted it back off.
+
+        Turning it off also took Express Mode with it, which is issue #13:
+        v0.5 tapped fine from a locked phone, v0.6 does not. Meanwhile the
+        recovery path added for issue #12 landed in that same release --
+        pn532_activate() now re-runs the init sequence after 20 consecutive
+        comms failures, roughly two seconds. That changes what a desync costs:
+        no longer dead until reboot, just a short gap before the reader comes
+        back on its own.
+
+        A desync that self-heals in about two seconds is a better trade than
+        never offering Express Mode at all, so this is on again. The underlying
+        desync is still not root-caused -- that needs a logic analyzer on the
+        SPI/I2C lines. Turn this off if a reader still spends more time
+        recovering than reading.
 
 config ALIRO_NFC_IRQ
     int "IRQ pin (-1 if unused)"
@@ -114,6 +128,19 @@ config ALIRO_FEEDBACK_LED_GPIO
     help
         Mirrors the current lock state. Off by default -- set a pin and
         enable it from the web UI's Feedback page, no rebuild required.
+
+config ALIRO_FEEDBACK_LED_DENIED_GPIO
+    int "Denied LED GPIO (-1 if unused)"
+    default -1
+    help
+        A second LED, pulsed for a configurable time when a tap is refused.
+
+        The status LED above tracks lock state, so it says nothing at all
+        about a tap that was rejected -- it just stays off, exactly as it
+        does when nobody has tapped. The buzzer already distinguishes the
+        two cases with separate granted and denied tunes; this gives the
+        same distinction to installations that want a red LED instead of
+        noise. Requested in issue #13.
 
 config ALIRO_FEEDBACK_BUZZER_GPIO
     int "Buzzer GPIO (-1 if unused)"

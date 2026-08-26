@@ -351,22 +351,26 @@ static esp_err_t pn532_command(pn532_t *dev, uint8_t cmd, const uint8_t *params,
 static esp_err_t bus_init(pn532_t *dev)
 {
     /*
-     * Once per boot, and tracked separately from whether the PN532 answered.
-     *
-     * These are two different things and conflating them broke a retry on
-     * hardware: the bus came up, the chip did not reply, so the caller's
-     * "started" flag stayed false -- and the next attempt tried to initialize
-     * an SPI host that was already initialized:
+     * The bus itself -- spi_bus_initialize()/i2c_new_master_bus() -- can only
+     * run once per host for the process lifetime; a second call fails:
      *
      *     E nfc/pn532: bus_init(325): SPI bus init failed
      *
-     * That turned "the chip is not answering, which is a wiring problem you
-     * can fix" into "the bus is unusable until reboot", which is not.
+     * That used to gate the device-add calls too, which broke the very next
+     * thing that needs them: a Matter controller calling SetAliroReaderConfig
+     * restarts the reader, and pn532_begin() zeroes the static pn532_t before
+     * calling in here again -- wiping dev->spi/dev->i2c_dev back to nothing,
+     * on a struct this function had already marked "configured" the first
+     * time around. Every SPI transaction after that failed immediately:
+     *
+     *     E spi_master: check_trans_valid(1108): invalid dev handle
+     *
+     * Adding a device to an already-initialized bus is fine to repeat, so
+     * only the bus-level call is one-shot; the device-add always runs, to
+     * populate whichever struct instance is asking this time.
      */
-    static bool configured;
-    if (configured) {
-        return ESP_OK;
-    }
+    static bool spi_bus_configured;
+    static bool i2c_bus_configured;
 
     if (is_spi(dev)) {
         /*
@@ -393,7 +397,10 @@ static esp_err_t bus_init(pn532_t *dev)
             .quadhd_io_num = -1,
             .max_transfer_sz = PN532_FRAME_MAX + 1,
         };
-        ESP_RETURN_ON_ERROR(spi_bus_initialize(host, &bus, SPI_DMA_CH_AUTO), k_tag, "SPI bus init failed");
+        if (!spi_bus_configured) {
+            ESP_RETURN_ON_ERROR(spi_bus_initialize(host, &bus, SPI_DMA_CH_AUTO), k_tag, "SPI bus init failed");
+            spi_bus_configured = true;
+        }
 
         const spi_device_interface_config_t devcfg = {
             .clock_speed_hz = dev->cfg.spi_freq_hz ? (int)dev->cfg.spi_freq_hz : 1000000,
@@ -411,19 +418,28 @@ static esp_err_t bus_init(pn532_t *dev)
             .flags = SPI_DEVICE_BIT_LSBFIRST,
         };
         ESP_RETURN_ON_ERROR(spi_bus_add_device(host, &devcfg, &dev->spi), k_tag, "SPI device add failed");
-        configured = true;
         return ESP_OK;
     }
 
-    const i2c_master_bus_config_t bus = {
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .i2c_port = I2C_NUM_0,
-        .scl_io_num = dev->cfg.i2c_scl,
-        .sda_io_num = dev->cfg.i2c_sda,
-        .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = true,
-    };
-    ESP_RETURN_ON_ERROR(i2c_new_master_bus(&bus, &dev->i2c_bus), k_tag, "I2C bus init failed");
+    /* dev->i2c_bus is a real resource, not a value bus_init() can just
+     * recompute like the SPI host enum above -- it has to survive a
+     * pn532_begin() restart zeroing the struct that's about to receive it,
+     * so it's cached here rather than only living in dev. */
+    static i2c_master_bus_handle_t s_i2c_bus;
+
+    if (!i2c_bus_configured) {
+        const i2c_master_bus_config_t bus = {
+            .clk_source = I2C_CLK_SRC_DEFAULT,
+            .i2c_port = I2C_NUM_0,
+            .scl_io_num = dev->cfg.i2c_scl,
+            .sda_io_num = dev->cfg.i2c_sda,
+            .glitch_ignore_cnt = 7,
+            .flags.enable_internal_pullup = true,
+        };
+        ESP_RETURN_ON_ERROR(i2c_new_master_bus(&bus, &s_i2c_bus), k_tag, "I2C bus init failed");
+        i2c_bus_configured = true;
+    }
+    dev->i2c_bus = s_i2c_bus;
 
     const i2c_device_config_t devcfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
@@ -432,7 +448,6 @@ static esp_err_t bus_init(pn532_t *dev)
     };
     ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(dev->i2c_bus, &devcfg, &dev->i2c_dev), k_tag,
                         "I2C device add failed");
-    configured = true;
     return ESP_OK;
 }
 

@@ -146,6 +146,12 @@ void app_config_defaults(app_config_t *out)
     out->feedback.led_enabled = false;
     out->feedback.led_gpio = CONFIG_ALIRO_FEEDBACK_LED_GPIO;
     out->feedback.led_active_low = false;
+    out->feedback.led_denied_enabled = false;
+    out->feedback.led_denied_gpio = CONFIG_ALIRO_FEEDBACK_LED_DENIED_GPIO;
+    out->feedback.led_denied_active_low = false;
+    /* Long enough to be unmissable if you glanced away, short enough that a
+     * second attempt is not waiting on the first one's light to go out. */
+    out->feedback.led_denied_ms = 1000;
     out->feedback.buzzer_enabled = false;
     out->feedback.buzzer_gpio = CONFIG_ALIRO_FEEDBACK_BUZZER_GPIO;
     out->feedback.buzzer_gain = 80;
@@ -223,8 +229,11 @@ esp_err_t app_config_validate(const app_config_t *cfg, char *err_msg, size_t err
         FAIL("lock output pin must be set");
     }
 
-    /* Collect every pin in use so two functions cannot claim the same one. */
-    pin_use_t used[10];
+    /* Collect every pin in use so two functions cannot claim the same one.
+     * Worst case today is 10 -- lock, four SPI, IRQ, reset, two LEDs and the
+     * buzzer -- and this is sized past that so adding one more output does not
+     * silently run off the end. */
+    pin_use_t used[12];
     size_t used_count = 0;
     used[used_count++] = (pin_use_t){cfg->lock.gpio, "lock output"};
 
@@ -286,6 +295,16 @@ esp_err_t app_config_validate(const app_config_t *cfg, char *err_msg, size_t err
         }
         CHECK_PIN(cfg->feedback.led_gpio, "status LED", true);
         used[used_count++] = (pin_use_t){cfg->feedback.led_gpio, "status LED"};
+    }
+    if (cfg->feedback.led_denied_enabled) {
+        if (cfg->feedback.led_denied_gpio == APP_CFG_PIN_UNSET) {
+            FAIL("denied LED is enabled but no GPIO is set");
+        }
+        CHECK_PIN(cfg->feedback.led_denied_gpio, "denied LED", true);
+        used[used_count++] = (pin_use_t){cfg->feedback.led_denied_gpio, "denied LED"};
+        if (cfg->feedback.led_denied_ms < 50 || cfg->feedback.led_denied_ms > 10000) {
+            FAIL("denied LED time must be between 50 and 10000 ms");
+        }
     }
     if (cfg->feedback.buzzer_enabled) {
         if (cfg->feedback.buzzer_gpio == APP_CFG_PIN_UNSET) {
@@ -427,6 +446,10 @@ char *app_config_to_json(const app_config_t *cfg, bool include_secrets)
     cJSON_AddBoolToObject(feedback, "led_enabled", cfg->feedback.led_enabled);
     cJSON_AddNumberToObject(feedback, "led_gpio", cfg->feedback.led_gpio);
     cJSON_AddBoolToObject(feedback, "led_active_low", cfg->feedback.led_active_low);
+    cJSON_AddBoolToObject(feedback, "led_denied_enabled", cfg->feedback.led_denied_enabled);
+    cJSON_AddNumberToObject(feedback, "led_denied_gpio", cfg->feedback.led_denied_gpio);
+    cJSON_AddBoolToObject(feedback, "led_denied_active_low", cfg->feedback.led_denied_active_low);
+    cJSON_AddNumberToObject(feedback, "led_denied_ms", cfg->feedback.led_denied_ms);
     cJSON_AddBoolToObject(feedback, "buzzer_enabled", cfg->feedback.buzzer_enabled);
     cJSON_AddNumberToObject(feedback, "buzzer_gpio", cfg->feedback.buzzer_gpio);
     cJSON_AddNumberToObject(feedback, "buzzer_gain", cfg->feedback.buzzer_gain);
@@ -571,6 +594,14 @@ esp_err_t app_config_from_json(const char *json, app_config_t *cfg, char *err_ms
         json_get_bool(feedback, "led_enabled", &cfg->feedback.led_enabled);
         json_get_i8(feedback, "led_gpio", &cfg->feedback.led_gpio);
         json_get_bool(feedback, "led_active_low", &cfg->feedback.led_active_low);
+        json_get_bool(feedback, "led_denied_enabled", &cfg->feedback.led_denied_enabled);
+        json_get_i8(feedback, "led_denied_gpio", &cfg->feedback.led_denied_gpio);
+        json_get_bool(feedback, "led_denied_active_low", &cfg->feedback.led_denied_active_low);
+        int denied_ms = cfg->feedback.led_denied_ms;
+        json_get_int(feedback, "led_denied_ms", &denied_ms);
+        /* Clamped rather than rejected: validate() is what reports an
+         * out-of-range time, and it needs a value that survives the cast. */
+        cfg->feedback.led_denied_ms = (uint16_t)(denied_ms < 0 ? 0 : denied_ms > 65535 ? 65535 : denied_ms);
         json_get_bool(feedback, "buzzer_enabled", &cfg->feedback.buzzer_enabled);
         json_get_i8(feedback, "buzzer_gpio", &cfg->feedback.buzzer_gpio);
         int gain = cfg->feedback.buzzer_gain;

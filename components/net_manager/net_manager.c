@@ -219,6 +219,21 @@ static void start_setup_ap(void)
         wifi_cfg.ap.authmode = WIFI_AUTH_OPEN;
     }
 
+    /* CONFIG_ESP_WIFI_SOFTAP_SAE_SUPPORT is on for this project (WPA3 on the
+     * station side), and that Kconfig option makes the softAP driver turn on
+     * PMF-capable for a WPA2-PSK AP even though pmf_cfg is never touched here
+     * -- nothing above asked for 802.11w. PMF's periodic SA Query handshake
+     * then forcibly disconnects any client that doesn't answer it fast enough,
+     * which on this AP looked like a client getting kicked off the setup
+     * network every 20-90 seconds:
+     *
+     *     wifi:STA not responded to 6 SA Query attempts, Reset connection
+     *
+     * A short-lived bootstrap AP a phone joins for a few minutes to hand over
+     * Wi-Fi credentials has nothing worth protecting with 802.11w. Off. */
+    wifi_cfg.ap.pmf_cfg.capable = false;
+    wifi_cfg.ap.pmf_cfg.required = false;
+
     /* AP *and* station. The station half is what makes the portal useful: it
      * can list the networks in range and join one while the phone stays
      * connected to the AP, so the user never has to guess an address or

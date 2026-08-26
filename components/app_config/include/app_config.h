@@ -126,6 +126,15 @@ typedef struct {
     int8_t led_gpio;
     bool led_active_low;
 
+    /* A second LED for refused taps. The one above follows lock state, which
+     * leaves it dark for a denied tap and dark for no tap at all -- the same
+     * gap the buzzer already closes with separate granted and denied tunes.
+     * A tap is an instant rather than a state, so this one is pulsed. */
+    bool led_denied_enabled;
+    int8_t led_denied_gpio;
+    bool led_denied_active_low;
+    uint16_t led_denied_ms; /*!< How long the denied LED stays lit, 50-10000 */
+
     bool buzzer_enabled;
     int8_t buzzer_gpio;
     uint8_t buzzer_gain; /*!< 0-100, scales the PWM duty cycle */

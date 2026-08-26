@@ -15,12 +15,14 @@ extern "C" {
 #endif
 
 /**
- * @brief Status LED and RTTTL buzzer, driven off the same access_control
+ * @brief Status LEDs and RTTTL buzzer, driven off the same access_control
  * event stream MQTT and Matter reporting already subscribe to.
  *
- * The LED mirrors the current lock state. The buzzer plays a configurable
- * RTTTL tune on a granted or denied tap. Both are optional and off unless a
- * GPIO is configured.
+ * The status LED mirrors the current lock state. The denied LED is pulsed for
+ * a configured time when a tap is refused -- the state LED cannot say that,
+ * since it is dark for a refusal and dark for no tap alike. The buzzer plays a
+ * configurable RTTTL tune on a granted or denied tap. All three are optional
+ * and off unless a GPIO is configured.
  *
  * @param[in] cfg Feedback configuration from the running app_config
  */
