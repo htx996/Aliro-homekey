@@ -1,10 +1,20 @@
 # ESP-IDF and host-test build output
 build/
+# tools/build_all.sh gives each release target its own directory, so a rebuild
+# of one does not discard the others. They are ~1.5 GB each.
+build-*/
 test/host/build/
 sdkconfig
 sdkconfig.old
 managed_components/
 dependencies.lock
+
+# Release artifacts, rebuilt by tools/build_all.sh and attached to a release
+# rather than committed.
+firmware/
+
+# Local agent/editor state
+.claude/
 
 # Reader identity and credentials: never commit these
 main/certs/*.pem
