@@ -19,6 +19,7 @@
 #include <esp_chip_info.h>
 #include <esp_http_server.h>
 #include <esp_log.h>
+#include <esp_heap_caps.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
 #include <esp_system.h>
@@ -232,18 +233,6 @@ static bool is_valid_wifi_credentials(const char *ssid, const char *password)
     
     // SSID: 1-32 chars, password: 8-63 chars (WPA2 requirement)
     return (ssid_len > 0 && ssid_len <= 32) && (pwd_len >= 8 && pwd_len <= 63);
-}
-
-/** Check heap memory is sufficient for requested feature */
-static bool check_heap_available(size_t required_bytes, const char *feature)
-{
-    size_t free_heap = esp_get_free_heap_size();
-    if (free_heap < required_bytes) {
-        ESP_LOGW(k_tag, "%s requires %zu bytes, only %zu available", 
-                 feature, required_bytes, free_heap);
-        return false;
-    }
-    return true;
 }
 
 /** Validate GPIO pin (chip-specific) */
@@ -1102,6 +1091,19 @@ typedef struct {
     char error[128];
 } ota_state_t;
 
+/*
+ * The smallest upload that can still work, and the floor the check above uses.
+ *
+ * One 1 kB buffer, what esp_ota_begin holds while it erases a partition whose
+ * size it already knows, and room for the socket underneath. Anything above
+ * this is comfort; anything below cannot complete. Deliberately close to the
+ * bone, because the alternative to a slow update is no update.
+ */
+/* Kept in step with partitions.csv, and with app_main's boot check. */
+#define OTA_EXPECTED_NVS_SIZE 0x20000
+#define OTA_MIN_BUF  1024
+#define OTA_MIN_HEAP 6144
+
 static void ota_task(void *arg)
 {
     ota_state_t *state = (ota_state_t *)arg;
@@ -1119,17 +1121,47 @@ static esp_err_t handle_ota_upload(httpd_req_t *req)
     }
 
     /*
-     * The upload itself needs very little: one 4 kB buffer, plus whatever
+     * The upload itself needs very little: one buffer, plus whatever
      * esp_ota_begin keeps while it erases the target partition. The 50 kB this
      * once demanded was a guess made on a build with 270 kB of heap free, and
      * on the Matter build -- which starts with about 170 kB and hands most of
      * it to chip, BLE and Wi-Fi -- that guess would refuse every update and
-     * leave a USB cable as the only way back out. Guard against genuine
-     * exhaustion, not against being busy.
+     * leave a USB cable as the only way back out.
+     *
+     * The 16 kB that replaced it was better but still wrong in the same
+     * direction, because refusing is the worst outcome available here. A
+     * reader whose heap is low is exactly the reader that most needs the
+     * update, and turning it away leaves USB as the only route -- on a device
+     * that may be screwed to a door frame. It refused a real update in the
+     * field on this build; see issue #13.
+     *
+     * So the floor is now the smallest configuration that can actually work,
+     * and the buffer adapts down to meet it rather than the check refusing on
+     * the buffer's behalf. Report the real numbers either way: "insufficient
+     * heap" with no figures told the one person who hit it nothing about how
+     * short it was.
      */
-    if (!check_heap_available(16384, "OTA")) {
+    const size_t free_before = esp_get_free_heap_size();
+    /*
+     * Both numbers, because the total is the misleading one. This allocates a
+     * single contiguous buffer, so what matters is the largest free block, and
+     * on a reader that has been up for weeks the two diverge badly: plenty
+     * free, none of it in one piece. A refusal that reports only the total
+     * sends someone hunting for a leak that is not there.
+     */
+    const size_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    ESP_LOGI(k_tag, "OTA requested: %u bytes free, largest block %u", (unsigned)free_before,
+             (unsigned)largest_block);
+
+    if (free_before < OTA_MIN_HEAP || largest_block < OTA_MIN_BUF) {
+        char detail[192];
+        snprintf(detail, sizeof(detail),
+                 "not enough memory to update: %u bytes free, largest block %u, need %u free and a %u "
+                 "block. Reboot the reader and update straight after it comes back.",
+                 (unsigned)free_before, (unsigned)largest_block, (unsigned)OTA_MIN_HEAP, (unsigned)OTA_MIN_BUF);
+        ESP_LOGE(k_tag, "%s", detail);
         httpd_resp_set_status(req, "507 Insufficient Storage");
-        return send_json_response(req, false, NULL, "insufficient heap memory for OTA operation", NULL);
+        return send_json_response(req, false, NULL, detail, NULL);
     }
 
     const esp_partition_t *partition = esp_ota_get_next_update_partition(NULL);
@@ -1167,16 +1199,27 @@ static esp_err_t handle_ota_upload(httpd_req_t *req)
 
     ESP_LOGW(k_tag, "OTA started: %u bytes into '%s'", (unsigned)req->content_len, partition->label);
 
-    /* From the heap and far larger than a TCP segment: at 1 kB this loop ran
-     * thousands of times over a slow link, and every iteration is a write to
-     * flash. */
-    const size_t buf_size = 4096;
-    uint8_t *buf = malloc(buf_size);
+    /*
+     * Far larger than a TCP segment, because at 1 kB this loop ran thousands
+     * of times over a slow link and every iteration is a write to flash. But
+     * a big buffer is a preference, not a requirement: an update that crawls
+     * still beats an update that cannot start, so step down rather than fail.
+     */
+    size_t buf_size = 4096;
+    uint8_t *buf = NULL;
+    while (!(buf = malloc(buf_size)) && buf_size > OTA_MIN_BUF) {
+        buf_size /= 2;
+    }
     if (!buf) {
         esp_ota_abort(handle);
         s_ota_running = false;
+        ESP_LOGE(k_tag, "could not allocate even %u bytes for the upload", (unsigned)OTA_MIN_BUF);
         httpd_resp_set_status(req, "507 Insufficient Storage");
-        return send_json_response(req, false, NULL, "out of memory", NULL);
+        return send_json_response(req, false, NULL, "out of memory starting the update", NULL);
+    }
+    if (buf_size < 4096) {
+        /* Worth saying: it will be slow, and it explains why. */
+        ESP_LOGW(k_tag, "low heap, uploading in %u byte chunks instead of 4096", (unsigned)buf_size);
     }
 
     size_t remaining = req->content_len;
@@ -1294,6 +1337,32 @@ static esp_err_t handle_ota_upload(httpd_req_t *req)
     cJSON *data = cJSON_CreateObject();
     cJSON_AddNumberToObject(data, "bytes_written", total_written);
     cJSON_AddNumberToObject(data, "reboot_delay_ms", 1000);
+
+    /*
+     * An OTA cannot rewrite the partition table, so a board still carrying an
+     * old one takes the new application onto the old layout and has no idea.
+     * That is not a hypothetical: v0.6 grew nvs to fix issue #9, every offset
+     * after it moved, and a reader updated over the air kept the small nvs,
+     * filled it, and had its whole configuration erased on a later boot -- by
+     * the release meant to prevent exactly that. Reported in issue #13, after
+     * it cost someone their setup and a reflash.
+     *
+     * The boot check in app_main says this too, but nobody reads a serial log
+     * after a successful web update. Say it here, while they are still looking
+     * at the screen that just told them it worked.
+     */
+    const esp_partition_t *nvs =
+        esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS, NULL);
+    if (nvs && nvs->size < OTA_EXPECTED_NVS_SIZE) {
+        ESP_LOGE(k_tag, "updated onto an old partition table: nvs is %u KB, this build expects %u KB",
+                 (unsigned)(nvs->size / 1024), (unsigned)(OTA_EXPECTED_NVS_SIZE / 1024));
+        cJSON_AddStringToObject(data, "partition_warning",
+                                "This board still has an old partition table, so its storage is smaller than "
+                                "this firmware expects. An update cannot change that. Commissioning into more "
+                                "than one ecosystem will fill it and erase every fabric, credential and "
+                                "setting. Flash the .firmware.factory.bin over USB at 0x0 to fix it properly.");
+    }
+
     const esp_err_t send_err = send_json_response(req, true, "Firmware updated, rebooting", NULL, data);
 
     /* Reboot from a task so the response is flushed first. s_ota_running is

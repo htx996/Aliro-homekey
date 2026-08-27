@@ -1860,7 +1860,16 @@ $("ota_start").onclick = () => {
       $("ota_bar").value = 100;
       $("ota_pct").textContent = "100%";
       otaLog("success", "Update installed, rebooting");
-      otaSay("success", "Update installed", "The reader is restarting. Reload this page in a few seconds.");
+      /* An update onto an old partition table succeeds and then quietly
+         behaves worse than before, so this warning outranks the success
+         message rather than sitting under it. See issue #13. */
+      const warning = body.data && body.data.partition_warning;
+      if (warning) {
+        otaLog("error", warning);
+        otaSay("warning", "Update installed, but this board needs a USB flash", warning);
+      } else {
+        otaSay("success", "Update installed", "The reader is restarting. Reload this page in a few seconds.");
+      }
     } else {
       const err = body.error || ("HTTP " + xhr.status);
       otaLog("error", err);
