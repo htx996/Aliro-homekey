@@ -1700,6 +1700,138 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
     return ESP_OK;
 }
 
+/* --- suspend for commissioning -------------------------------------------
+ *
+ * Matter commissioning is the peak RAM moment of this firmware's life: it
+ * parses a certificate chain and establishes a CASE session, all at once, on a
+ * chip that is already running Wi-Fi, Bluetooth, the Matter stack, an NFC
+ * reader and this web server. A reader in the field measured 20-22 KB free,
+ * falling to 18 KB while pairing, and commissioning failed partway -- the
+ * fabric was created, the reader identity never arrived, and every tap after
+ * that failed with nothing to check. See issue #13.
+ *
+ * Nobody is browsing the configuration UI while they are pairing; they are
+ * looking at their phone. So the server gives its memory back for the duration
+ * and takes it again afterwards -- the httpd task's 8 kB stack, the WebSocket
+ * task's 4 kB, the send queue, and seven sockets' worth of lwIP buffers.
+ *
+ * The obvious version of this idea -- stop when nobody has used the UI for a
+ * while -- is the one that cannot work. Nothing would be listening, so no
+ * request could ever start it again, and a device with no button would need a
+ * power cycle to get its configuration page back. Tying it to commissioning
+ * instead makes the suspension bounded, self-terminating, and tied to a moment
+ * when the user is provably elsewhere.
+ *
+ * Two things guarantee it always comes back. The stack fires either
+ * kCommissioningComplete or kFailSafeTimerExpired, and a watchdog resumes
+ * regardless if neither ever arrives -- a lock nobody can configure is a worse
+ * failure than a commissioning attempt that runs short of memory.
+ */
+
+/* Longer than a commissioning exchange, far shorter than being locked out.
+ * Matter's fail-safe can run to 900 s, but if pairing is still going after
+ * this long it has failed in a way no amount of free heap will fix. */
+#define WEB_SUSPEND_WATCHDOG_US (300 * 1000 * 1000ULL)
+
+static esp_timer_handle_t s_suspend_watchdog;
+static bool s_suspended;
+
+static void suspend_watchdog_fired(void *arg)
+{
+    (void)arg;
+    if (s_suspended) {
+        ESP_LOGW(k_tag, "commissioning never signalled an end; restoring the web server anyway");
+        web_server_set_commissioning_active(false);
+    }
+}
+
+/*
+ * Claim the state change, so exactly one caller performs it.
+ *
+ * Two tasks reach this: the CHIP task, when the stack reports commissioning
+ * starting or ending, and the esp_timer task, when the watchdog gives up
+ * waiting. Both can ask to resume at once -- the fail-safe expiring at the
+ * same moment the watchdog fires is an ordinary coincidence, not a rare one.
+ * A plain read-then-write would let both see "suspended", both call
+ * web_server_start(), and leave two httpd instances fighting over one port.
+ *
+ * A critical section rather than a mutex: this flips one bool, it cannot
+ * block, and it needs no initialisation order to be correct.
+ */
+static portMUX_TYPE s_suspend_lock = portMUX_INITIALIZER_UNLOCKED;
+
+static bool claim_suspend_transition(bool active)
+{
+    bool claimed = false;
+    portENTER_CRITICAL(&s_suspend_lock);
+    if (s_suspended != active) {
+        s_suspended = active;
+        claimed = true;
+    }
+    portEXIT_CRITICAL(&s_suspend_lock);
+    return claimed;
+}
+
+static void release_suspend_transition(bool active)
+{
+    portENTER_CRITICAL(&s_suspend_lock);
+    s_suspended = !active;
+    portEXIT_CRITICAL(&s_suspend_lock);
+}
+
+void web_server_set_commissioning_active(bool active)
+{
+    if (!claim_suspend_transition(active)) {
+        return; /* already in the requested state, or another task is on it */
+    }
+
+    if (active) {
+        if (!s_server) {
+            release_suspend_transition(active);
+            return; /* nothing running to give back */
+        }
+        const size_t before = esp_get_free_heap_size();
+        if (web_server_stop() != ESP_OK) {
+            ESP_LOGW(k_tag, "could not suspend the web server for commissioning");
+            release_suspend_transition(active);
+            return;
+        }
+
+        if (!s_suspend_watchdog) {
+            const esp_timer_create_args_t args = {
+                .callback = suspend_watchdog_fired,
+                .dispatch_method = ESP_TIMER_TASK,
+                .name = "web_resume",
+            };
+            if (esp_timer_create(&args, &s_suspend_watchdog) != ESP_OK) {
+                /* Without a watchdog the only guarantee left is the stack's own
+                 * events. Restore now rather than bet the UI on them. */
+                ESP_LOGE(k_tag, "no watchdog available; not suspending");
+                release_suspend_transition(active);
+                (void)web_server_start(NULL);
+                return;
+            }
+        }
+        (void)esp_timer_start_once(s_suspend_watchdog, WEB_SUSPEND_WATCHDOG_US);
+
+        ESP_LOGW(k_tag, "web server suspended for commissioning: %u bytes free, was %u",
+                 (unsigned)esp_get_free_heap_size(), (unsigned)before);
+        return;
+    }
+
+    if (s_suspend_watchdog) {
+        (void)esp_timer_stop(s_suspend_watchdog);
+    }
+    const esp_err_t err = web_server_start(NULL);
+    if (err != ESP_OK) {
+        /* The configuration UI is the only way back into a device with no
+         * button, so this is loud even though nothing here can retry it. */
+        ESP_LOGE(k_tag, "could not restart the web server after commissioning: %s", esp_err_to_name(err));
+        return;
+    }
+    ESP_LOGI(k_tag, "web server restored, %u bytes free", (unsigned)esp_get_free_heap_size());
+}
+
 esp_err_t web_server_stop(void)
 {
     if (!s_server) {

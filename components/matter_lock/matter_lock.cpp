@@ -186,20 +186,42 @@ static LockFabricDelegate s_fabric_delegate;
 
 /* --- Stack callbacks ----------------------------------------------------- */
 
+/*
+ * Runs on the CHIP task, so whatever this reaches must not block for long and
+ * must not call back into the stack. Suspending the web server means stopping
+ * an httpd task, which is bounded and does neither.
+ */
+static void notify_commissioning(bool active)
+{
+    const matter_lock_hooks_t *hooks = matter_lock_hooks();
+    if (hooks && hooks->commissioning_active) {
+        hooks->commissioning_active(active);
+    }
+}
+
 static void on_matter_event(const ChipDeviceEvent *event, intptr_t arg)
 {
     switch (event->Type) {
+    /*
+     * These three bracket a commissioning attempt: one start, and two ways to
+     * end. Both endings have to release, or the web server stays down after a
+     * failed pairing -- the one state where someone most needs the
+     * configuration UI. See issue #13 for what commissioning costs in RAM.
+     */
     case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
         ESP_LOGI(k_tag, "commissioned; this device is now in %u fabric(s)",
                  (unsigned)chip::Server::GetInstance().GetFabricTable().FabricCount());
+        notify_commissioning(false);
         break;
 
     case chip::DeviceLayer::DeviceEventType::kCommissioningSessionStarted:
         ESP_LOGI(k_tag, "a controller is commissioning this device");
+        notify_commissioning(true);
         break;
 
     case chip::DeviceLayer::DeviceEventType::kFailSafeTimerExpired:
         ESP_LOGW(k_tag, "commissioning failed: the fail-safe timer expired");
+        notify_commissioning(false);
         break;
 
     case chip::DeviceLayer::DeviceEventType::kFabricRemoved: {

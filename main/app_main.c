@@ -337,6 +337,11 @@ static void start_matter(void)
         .unlock = matter_unlock,
         .lock = matter_lock,
         .is_locked = access_control_is_locked,
+        /* The web server stands down while a controller commissions us, and
+         * comes back however that ends. Wired here because web_server already
+         * depends on matter_lock; calling it the other way round would make
+         * the two components circular. See issue #13. */
+        .commissioning_active = web_server_set_commissioning_active,
     };
 
     if (matter_lock_start(&hooks) != ESP_OK) {

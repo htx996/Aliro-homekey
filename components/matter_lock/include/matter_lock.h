@@ -70,6 +70,18 @@ typedef struct {
 
     /** @brief Current lock output state, reported as the LockState attribute. */
     bool (*is_locked)(void);
+
+    /**
+     * @brief Commissioning started or ended, so heavy subsystems can stand down.
+     *
+     * Commissioning is the peak RAM moment of a boot, and on a classic ESP32
+     * there is little room to peak into -- see issue #13. This is a hook rather
+     * than a direct call because web_server already depends on this component;
+     * the wiring lives in app_main, where both are visible.
+     *
+     * Called with false however commissioning ends, success or failure alike.
+     */
+    void (*commissioning_active)(bool active);
 } matter_lock_hooks_t;
 
 /**

@@ -50,6 +50,24 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks);
 
 esp_err_t web_server_stop(void);
 
+/**
+ * @brief Give the web server's RAM back while a controller commissions us.
+ *
+ * Commissioning is this firmware's peak memory moment, and on a classic ESP32
+ * there is not much left to peak into -- a reader in the field had 18 KB free
+ * while pairing, and pairing failed partway (issue #13). Nobody is using the
+ * configuration UI while they are pairing from their phone, so it stands down
+ * and comes back afterwards.
+ *
+ * Always paired. The caller signals both edges, and the server also resumes on
+ * its own if the end signal never arrives: a lock nobody can configure is a
+ * worse outcome than a commissioning attempt short of memory.
+ *
+ * @param active true while commissioning is under way, false once it ends
+ *               however it ends
+ */
+void web_server_set_commissioning_active(bool active);
+
 /** @brief Register an event observer to receive notifications of config changes and lock events. */
 /**
  * @brief Watch events the web server publishes.
