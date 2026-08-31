@@ -643,13 +643,48 @@ static esp_err_t pn532_start(pn532_t *dev)
     ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_RF_CONFIGURATION, retries, sizeof(retries), NULL, 0, NULL, 200), k_tag,
                         "RFConfiguration(retries) failed");
 
-    /* Restore the documented PN532 timing defaults explicitly. In particular,
-     * InCommunicateThru must finish its expected no-answer response inside the
-     * host's 100 ms command timeout. This also recovers a module that retained
-     * the older ECP implementation's 409.6 ms timeout across an MCU reboot. */
-    const uint8_t timings[] = {0x02, 0x00, 0x0B, 0x0A};
+    /*
+     * Timings: RFU, fATR_RES_Timeout, fRetryTimeout. The last one bounds how
+     * long the chip waits for a target to answer an InDataExchange, as
+     * 100 us * 2^(value-1).
+     *
+     * This was 0x0A, the chip's own default, which is 51.2 ms. That is the
+     * documented value and it is far too short for what happens here: an Aliro
+     * exchange has the phone doing P-256 work between APDUs, and a phone that
+     * takes longer than 51.2 ms to answer is not a phone that has gone away,
+     * it is a phone that is busy. The chip reports it as error 0x01, "target
+     * has not answered", which reads like the device left the field.
+     *
+     * 0x0C is 204.8 ms, four times the default. It has to be chosen against
+     * MxRtyCOM below rather than on its own: every retry waits this long
+     * again, so 204.8 ms with three retries is 819 ms in the worst case,
+     * which still fits inside the host timeout on the exchange itself. A
+     * more generous value here would have the host give up while the chip
+     * was still usefully retrying, which is worse than not retrying.
+     *
+     * Also restores a module that retained the older ECP implementation's
+     * 409.6 ms timeout across an MCU reboot.
+     */
+    const uint8_t timings[] = {0x02, 0x00, 0x0B, 0x0C};
     ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_RF_CONFIGURATION, timings, sizeof(timings), NULL, 0, NULL, 200), k_tag,
                         "RFConfiguration(timings) failed");
+
+    /*
+     * MxRtyCOM: how many times the chip retries a failed data exchange itself.
+     *
+     * This was never configured, so it sat at the chip default of zero, and a
+     * single corrupted frame anywhere in a multi-APDU Aliro transaction failed
+     * the whole tap. The radio errors seen in the field are exactly the
+     * transient kind that a retry absorbs: CRC (0x02), parity (0x03) and
+     * abnormal bit-collision (0x06), all of which mean one frame was mangled,
+     * not that the conversation is over.
+     *
+     * Three retries, because the alternative on a mangled frame is asking a
+     * person to take their phone off the reader and put it back.
+     */
+    const uint8_t com_retries[] = {0x04, 0x03};
+    ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_RF_CONFIGURATION, com_retries, sizeof(com_retries), NULL, 0, NULL, 200),
+                        k_tag, "RFConfiguration(MxRtyCOM) failed");
 
     /* Field on, with automatic RF collision avoidance. */
     const uint8_t field[] = {0x01, 0x03};
@@ -783,8 +818,11 @@ esp_err_t pn532_message_exchange(const uint8_t *command, size_t command_len, uin
     /* The response is a status byte followed by the card's own reply. */
     uint8_t raw[PN532_FRAME_MAX];
     size_t raw_len = 0;
+    /* 2 s, not 1: the chip now retries a mangled frame up to three times at
+     * 204.8 ms each, and the host has to outlast that or it abandons an
+     * exchange the chip was about to recover. */
     ESP_RETURN_ON_ERROR(pn532_command(dev, CMD_IN_DATA_EXCHANGE, params, command_len + 1, raw, sizeof(raw), &raw_len,
-                                      1000),
+                                      2000),
                         k_tag, "InDataExchange failed");
 
     ESP_RETURN_ON_FALSE(raw_len >= 1, ESP_ERR_INVALID_RESPONSE, k_tag, "empty exchange response");
