@@ -161,7 +161,7 @@ fieldset.fieldset > legend{padding:0 .375rem;font-size:.8125rem;font-weight:600;
   color:var(--color-base-content);font:inherit;font-size:.875rem;font-weight:600;
   cursor:pointer;white-space:nowrap}
 .btn:hover{background:color-mix(in oklab,var(--color-base-300) 82%,var(--color-base-content))}
-.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn:disabled,.btn-disabled{opacity:.5;cursor:not-allowed;pointer-events:none}
 .btn-sm{height:2rem;padding:0 .75rem;font-size:.8125rem}
 .btn-ghost{background:transparent}
 .btn-ghost:hover{background:color-mix(in oklab,var(--color-base-content) 10%,transparent)}
@@ -544,13 +544,9 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
                     <div class="v" id="matter_manual">—</div>
                   </div>
                   <div class="flex gap-2">
-                    <button type="button" class="btn btn-sm btn-outline flex-1" id="matter_qr">Show QR</button>
+                    <a id="matter_qr" class="btn btn-sm btn-outline flex-1" target="_blank"
+                       rel="noopener noreferrer">Open QR</a>
                     <button type="button" class="btn btn-sm btn-outline flex-1" id="matter_pair">Reopen pairing</button>
-                  </div>
-                  <div id="matter_qr_frame" class="hidden">
-                    <iframe id="matter_qr_iframe" title="Matter pairing QR code"
-                      style="width:100%;aspect-ratio:1/1;max-width:280px;display:block;margin:0 auto;border:0;border-radius:8px"
-                      loading="lazy"></iframe>
                   </div>
                 </div>
                 <p class="text-xs text-muted">A controller commissions this lock over Bluetooth, then
@@ -1628,12 +1624,8 @@ function renderStatus(s) {
     $("matter_manual").textContent = s.matter.manual_code || "—";
     $("matter_pairing").classList.toggle("hidden", !s.matter.qr_url);
     matterQrUrl = s.matter.qr_url || "";
-    $("matter_qr").disabled = !matterQrUrl;
-    if (!matterQrUrl) {
-      $("matter_qr_frame").classList.add("hidden");
-      $("matter_qr_iframe").removeAttribute("src");
-      $("matter_qr").textContent = "Show QR";
-    }
+    $("matter_qr").href = matterQrUrl || "#";
+    $("matter_qr").classList.toggle("btn-disabled", !matterQrUrl);
   }
 
   $("lock_badge").className = `badge badge-${s.reader.locked ? "success" : "warning"}`;
@@ -1746,22 +1738,6 @@ $("form").addEventListener("submit", async (e) => {
 $("unlock").addEventListener("click", async () => {
   try { await api("/api/unlock", {method: "POST"}); toast("Unlocked."); refreshStatus(); }
   catch (err) { toast(err.message, "error"); }
-});
-
-$("matter_qr").addEventListener("click", () => {
-  if (!matterQrUrl) return;
-  const frame = $("matter_qr_frame");
-  const showing = frame.classList.toggle("hidden") === false;
-  $("matter_qr").textContent = showing ? "Hide QR" : "Show QR";
-  if (showing) {
-    /* Loaded on demand rather than as soon as pairing is possible -- this
-     * page is fetched from project-chip.github.io, an external site, and
-     * there is no reason to send it the pairing payload before the user
-     * actually asks to see the code. */
-    $("matter_qr_iframe").src = matterQrUrl;
-  } else {
-    $("matter_qr_iframe").removeAttribute("src");
-  }
 });
 
 $("matter_pair").addEventListener("click", async () => {
