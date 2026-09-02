@@ -41,11 +41,48 @@ static struct {
 
 /* --- SDK callback trampolines ------------------------------------------- */
 
+/*
+ * Up to three attempts at the whole exchange, not just the frame retries the
+ * PN532 already does inside one call. Matches Espressif's own reference
+ * reader (m5nfc_message_exchange, kApduMaxAttempts = 3) rather than a number
+ * picked here -- that driver targets different hardware (ST25R3916, not the
+ * PN532) but sits at the identical point in the stack: the callback esp_aliro
+ * calls to move one APDU, wrapping whatever the transport underneath does.
+ *
+ * Why this belongs above the transport's own retries and not instead of them:
+ * MxRtyCOM (see pn532.c) recovers a single mangled frame without ever
+ * returning to this function. This catches what that cannot -- the chip's
+ * retries exhausted, a timeout, the reader momentarily off the field -- kinds
+ * of failure a phone mid-tap is not gone from, just slow or momentarily
+ * misaligned with the antenna.
+ *
+ * Retrying a lost response is safe to do blindly here because a failure from
+ * the transport means no valid response was recovered, which is the same
+ * "resend it" case ISO14443-4's own frame-retry logic in the C-APDU/R-APDU
+ * exchange already exists for; a call that succeeds is returned immediately,
+ * once, however many attempts it took.
+ */
+#define APDU_MAX_ATTEMPTS 3
+
 static esp_err_t on_message_exchange(const uint8_t *command, size_t command_len, uint8_t *response,
                                      size_t *response_len)
 {
     const nfc_transport_t *t = s_reader.cfg.transport;
-    return t->exchange(t->ctx, command, command_len, response, response_len);
+    const size_t response_cap = *response_len;
+
+    esp_err_t err = ESP_FAIL;
+    for (unsigned attempt = 1; attempt <= APDU_MAX_ATTEMPTS; attempt++) {
+        *response_len = response_cap; /* a failed attempt may have written a partial length */
+        err = t->exchange(t->ctx, command, command_len, response, response_len);
+        if (err == ESP_OK) {
+            if (attempt > 1) {
+                ESP_LOGI(k_tag, "APDU exchange recovered on attempt %u/%u", attempt, APDU_MAX_ATTEMPTS);
+            }
+            return ESP_OK;
+        }
+        ESP_LOGW(k_tag, "APDU exchange attempt %u/%u failed: %s", attempt, APDU_MAX_ATTEMPTS, esp_err_to_name(err));
+    }
+    return err;
 }
 
 static esp_err_t on_lookup_credential_pubkey(const uint8_t *key_slot, size_t key_slot_len, char *out_pubkey,
