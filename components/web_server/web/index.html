@@ -533,8 +533,10 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
                   <div class="k text-xs text-muted">Controllers</div>
                   <div id="matter_fabrics" class="space-y-2"></div>
                   <p class="text-xs text-muted">Every controller here shows this lock as its own accessory
-                    and can open the door. Two entries mean two apps, which is either deliberate or a
-                    leftover from a controller that was never removed properly.</p>
+                    and can open the door. Apple adds two at once, Apple Home and Apple Keychain, for each
+                    device that pairs, so a single iPhone accounts for two entries and that is normal. An
+                    entry you do not recognise is either another household member's phone or a leftover
+                    from a controller that was never removed properly.</p>
                 </div>
                 <div id="matter_pairing" class="space-y-2">
                   <div class="stat-box">
@@ -1663,8 +1665,14 @@ async function refreshStatus() {
 
 /* The CSA assigns these. Only the ones a phone wallet ships with are worth
    naming; anything else is shown as its raw ID rather than guessed at. */
-const MATTER_VENDORS = {0x1349: "Apple", 0x6006: "Google", 0x1049: "Samsung SmartThings",
-                        0x1217: "Amazon", 0x131b: "Espressif", 0xfff1: "Test vendor"};
+/* 0x1384 is Apple Keychain, and it is why an Apple pairing produces two
+   administrators rather than one. Identified from a SmartThings "Connected
+   services" list where the fabrics appeared as Apple Home + Apple Keychain per
+   Apple device, twice over for two people in the same household. Two users had
+   reported it as an uninvited vendor before that; see issue #13. */
+const MATTER_VENDORS = {0x1349: "Apple Home", 0x1384: "Apple Keychain", 0x6006: "Google",
+                        0x1049: "Samsung SmartThings", 0x1217: "Amazon", 0x131b: "Espressif",
+                        0xfff1: "Test vendor"};
 
 function renderFabrics(list) {
   const row = $("matter_fabrics_row");
