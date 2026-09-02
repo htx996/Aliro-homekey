@@ -323,6 +323,15 @@ static esp_err_t matter_lock(void)
     return access_control_lock_from(ACCESS_LOCK_SOURCE_MATTER);
 }
 
+/* Deferred alongside the web server when Matter is running, so it is a
+ * callback rather than a call. app_config_get() is stable for the life of the
+ * process, so reading it here rather than capturing a pointer is safe. */
+static void start_mqtt(void)
+{
+    const app_config_t *cfg = app_config_get();
+    ESP_ERROR_CHECK_WITHOUT_ABORT(mqtt_manager_start(&cfg->mqtt, cfg->device_name));
+}
+
 static void start_matter(void)
 {
     if (!matter_lock_available()) {
@@ -436,7 +445,6 @@ void app_main(void)
      * nothing above this line depends on it. */
     ESP_ERROR_CHECK_WITHOUT_ABORT(net_manager_start(&cfg->net));
 
-    ESP_ERROR_CHECK_WITHOUT_ABORT(mqtt_manager_start(&cfg->mqtt, cfg->device_name));
 
     const web_server_hooks_t hooks = {
         .credential_count = access_control_credential_count,
@@ -459,9 +467,14 @@ void app_main(void)
      * cases the crowded moment this avoids is not happening anyway.
      */
     if (matter_lock_running()) {
-        ESP_ERROR_CHECK_WITHOUT_ABORT(web_server_start_deferred(&hooks));
+        /* MQTT rides along rather than getting its own timer: it is the other
+         * service that opens a socket and holds buffers during exactly this
+         * window, and it has nothing useful to say until the lock is reachable
+         * anyway. Off by default, so for most boards this changes nothing. */
+        ESP_ERROR_CHECK_WITHOUT_ABORT(web_server_start_deferred(&hooks, start_mqtt));
     } else {
         ESP_ERROR_CHECK_WITHOUT_ABORT(web_server_start(&hooks));
+        start_mqtt();
     }
 
     /* Last, so its prompt lands after the boot log rather than in the middle

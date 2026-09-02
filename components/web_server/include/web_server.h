@@ -64,8 +64,14 @@ esp_err_t web_server_stop(void);
  *
  * Bounded on both sides: web_server_note_stack_ready() shortens the wait, and
  * an absolute deadline starts the server even if that never arrives.
+ *
+ * @param hooks Web server hooks, as for web_server_start()
+ * @param after Optional. Invoked once the deferred start fires, for other
+ *              network services that should wait for the same moment. Called
+ *              even if the server itself failed to start, so nothing queued
+ *              behind it is held hostage by an httpd that could not bind.
  */
-esp_err_t web_server_start_deferred(const web_server_hooks_t *hooks);
+esp_err_t web_server_start_deferred(const web_server_hooks_t *hooks, void (*after)(void));
 
 /**
  * @brief Tell a deferred start that the Matter stack is up.

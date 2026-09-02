@@ -1738,6 +1738,10 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
 static esp_timer_handle_t s_defer_timer;
 static portMUX_TYPE s_defer_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool s_defer_pending;
+/* Other network services waiting on the same moment. The web server owns the
+ * timing because it already has the timer; it does not need to know what else
+ * is queued behind it. */
+static void (*s_defer_after)(void);
 
 /*
  * One timer, re-armed, rather than two swapped over.
@@ -1771,6 +1775,13 @@ static void deferred_start_now(const char *why)
     } else {
         ESP_LOGE(k_tag, "deferred web server start failed: %s", esp_err_to_name(err));
     }
+    /* Runs even when the server itself failed: whatever is queued behind this
+     * should not be held hostage by an httpd that could not bind. */
+    if (s_defer_after) {
+        void (*after)(void) = s_defer_after;
+        s_defer_after = NULL;
+        after();
+    }
 }
 
 static void deferred_timer_fire(void *arg)
@@ -1779,11 +1790,12 @@ static void deferred_timer_fire(void *arg)
     deferred_start_now("wait elapsed");
 }
 
-esp_err_t web_server_start_deferred(const web_server_hooks_t *hooks)
+esp_err_t web_server_start_deferred(const web_server_hooks_t *hooks, void (*after)(void))
 {
     if (hooks) {
         s_hooks = *hooks;
     }
+    s_defer_after = after;
 
     const esp_timer_create_args_t args = {
         .callback = deferred_timer_fire,
@@ -1794,7 +1806,13 @@ esp_err_t web_server_start_deferred(const web_server_hooks_t *hooks)
         /* No timer means no guarantee it would ever start. Start now instead:
          * a web server competing for RAM beats no configuration UI. */
         ESP_LOGW(k_tag, "cannot defer the web server, starting it now");
-        return web_server_start(NULL);
+        const esp_err_t now = web_server_start(NULL);
+        if (s_defer_after) {
+            void (*fn)(void) = s_defer_after;
+            s_defer_after = NULL;
+            fn();
+        }
+        return now;
     }
 
     s_defer_pending = true;
