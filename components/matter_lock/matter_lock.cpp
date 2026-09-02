@@ -214,6 +214,18 @@ static void on_matter_event(const ChipDeviceEvent *event, intptr_t arg)
         notify_commissioning(false);
         break;
 
+    case chip::DeviceLayer::DeviceEventType::kServerReady: {
+        /* Ready to begin talking to controllers, which is when subscription
+         * resumption starts rather than when it finishes. Anything waiting on
+         * this has to allow for that. */
+        ESP_LOGI(k_tag, "Matter server ready");
+        const matter_lock_hooks_t *hooks = matter_lock_hooks();
+        if (hooks && hooks->stack_ready) {
+            hooks->stack_ready();
+        }
+        break;
+    }
+
     case chip::DeviceLayer::DeviceEventType::kCommissioningSessionStarted:
         ESP_LOGI(k_tag, "a controller is commissioning this device");
         notify_commissioning(true);

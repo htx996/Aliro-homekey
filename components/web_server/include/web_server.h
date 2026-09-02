@@ -51,6 +51,32 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks);
 esp_err_t web_server_stop(void);
 
 /**
+ * @brief Start the web server once Matter has finished bringing its fabrics up.
+ *
+ * Boot is a memory peak: every fabric resumes its subscription at once, because
+ * CHIP fires them together by design (see connectedhomeip issue 25439). Holding
+ * the web server's ~16 kB through that is what pushes a multi-fabric lock into
+ * "PacketBuffer: pool EMPTY" and leaves controllers showing it as Updating.
+ *
+ * Only call this when Matter is actually running. A board with no Wi-Fi
+ * credentials never starts Matter, and there the web server is the setup
+ * portal -- deferring it would leave that board with no way in at all.
+ *
+ * Bounded on both sides: web_server_note_stack_ready() shortens the wait, and
+ * an absolute deadline starts the server even if that never arrives.
+ */
+esp_err_t web_server_start_deferred(const web_server_hooks_t *hooks);
+
+/**
+ * @brief Tell a deferred start that the Matter stack is up.
+ *
+ * Shortens the wait to a settle window rather than starting immediately: the
+ * stack being ready to talk to other nodes is not the same as having finished
+ * doing so. Harmless when nothing is deferred.
+ */
+void web_server_note_stack_ready(void);
+
+/**
  * @brief Give the web server's RAM back while a controller commissions us.
  *
  * Commissioning is this firmware's peak memory moment, and on a classic ESP32

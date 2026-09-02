@@ -82,6 +82,9 @@ typedef struct {
      * Called with false however commissioning ends, success or failure alike.
      */
     void (*commissioning_active)(bool active);
+
+    /** @brief The Matter stack is up and ready to talk to controllers. */
+    void (*stack_ready)(void);
 } matter_lock_hooks_t;
 
 /**

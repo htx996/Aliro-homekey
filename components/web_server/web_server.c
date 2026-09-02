@@ -1700,6 +1700,123 @@ esp_err_t web_server_start(const web_server_hooks_t *hooks)
     return ESP_OK;
 }
 
+/* --- deferred start -------------------------------------------------------
+ *
+ * Boot is the second memory peak, after commissioning. Every fabric this lock
+ * belongs to tries to re-establish its subscription at once, and CHIP does
+ * that deliberately: ResumeSubscriptions() takes the largest persisted
+ * min-interval, waits once, and fires them all together. Its own comment says
+ * per-subscription staggering "potentially runs into a timer resource issue"
+ * and points at connectedhomeip issue 25439 for the improvement. So the
+ * spreading-out is not ours to do.
+ *
+ * What is ours to do is not be holding 16 kB of web server while it happens.
+ * Nobody opens the configuration page in the first seconds after power-on;
+ * they are waiting for the lock to appear in their home app, which is exactly
+ * what those resumptions are for.
+ *
+ * Two rules keep this from turning into a lock nobody can configure.
+ *
+ * It only ever applies when Matter is actually running. A device with no Wi-Fi
+ * credentials never starts Matter, and there the web server IS the setup
+ * portal -- deferring it would leave a first-boot board with no way in at all.
+ * app_main decides that, not this file.
+ *
+ * And the deadline is absolute. kServerReady only means the node is ready to
+ * begin talking to other nodes, not that resumption has finished, so it starts
+ * a shorter settle window rather than releasing immediately. If neither the
+ * event nor the settle window ever arrives, the deadline starts the server
+ * anyway.
+ */
+
+/* Long enough for resumption to get through its CASE handshakes, short enough
+ * that someone power-cycling a misbehaving lock is not left staring at a dead
+ * address. */
+#define WEB_DEFER_SETTLE_MS   12000
+#define WEB_DEFER_DEADLINE_MS 45000
+
+static esp_timer_handle_t s_defer_timer;
+static portMUX_TYPE s_defer_lock = portMUX_INITIALIZER_UNLOCKED;
+static bool s_defer_pending;
+
+/*
+ * One timer, re-armed, rather than two swapped over.
+ *
+ * The obvious shape is a long deadline timer that gets deleted and replaced by
+ * a short settle timer when the stack comes up. That deletes a timer from the
+ * CHIP task while its callback may be running on the esp_timer task, which is
+ * undefined. Re-aiming the same handle has no such window, and the claim below
+ * means only one caller ever performs the start.
+ */
+static bool claim_deferred_start(void)
+{
+    bool claimed = false;
+    portENTER_CRITICAL(&s_defer_lock);
+    if (s_defer_pending) {
+        s_defer_pending = false;
+        claimed = true;
+    }
+    portEXIT_CRITICAL(&s_defer_lock);
+    return claimed;
+}
+
+static void deferred_start_now(const char *why)
+{
+    if (!claim_deferred_start()) {
+        return; /* already started, or another caller is doing it */
+    }
+    const esp_err_t err = web_server_start(NULL);
+    if (err == ESP_OK) {
+        ESP_LOGI(k_tag, "web server started (%s), %u bytes free", why, (unsigned)esp_get_free_heap_size());
+    } else {
+        ESP_LOGE(k_tag, "deferred web server start failed: %s", esp_err_to_name(err));
+    }
+}
+
+static void deferred_timer_fire(void *arg)
+{
+    (void)arg;
+    deferred_start_now("wait elapsed");
+}
+
+esp_err_t web_server_start_deferred(const web_server_hooks_t *hooks)
+{
+    if (hooks) {
+        s_hooks = *hooks;
+    }
+
+    const esp_timer_create_args_t args = {
+        .callback = deferred_timer_fire,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "web_defer",
+    };
+    if (esp_timer_create(&args, &s_defer_timer) != ESP_OK) {
+        /* No timer means no guarantee it would ever start. Start now instead:
+         * a web server competing for RAM beats no configuration UI. */
+        ESP_LOGW(k_tag, "cannot defer the web server, starting it now");
+        return web_server_start(NULL);
+    }
+
+    s_defer_pending = true;
+    ESP_LOGI(k_tag, "web server deferred while Matter brings its fabrics back up");
+    return esp_timer_start_once(s_defer_timer, (uint64_t)WEB_DEFER_DEADLINE_MS * 1000);
+}
+
+void web_server_note_stack_ready(void)
+{
+    if (!s_defer_pending || !s_defer_timer) {
+        return;
+    }
+    /* Ready to talk to controllers is not the same as done talking to them, so
+     * this shortens the wait rather than ending it. Stop-then-start on the one
+     * handle: no delete, so no racing a callback that may already be running. */
+    (void)esp_timer_stop(s_defer_timer);
+    if (esp_timer_start_once(s_defer_timer, (uint64_t)WEB_DEFER_SETTLE_MS * 1000) != ESP_OK) {
+        ESP_LOGW(k_tag, "could not re-arm the settle timer; starting the web server now");
+        deferred_start_now("re-arm failed");
+    }
+}
+
 /* --- suspend for commissioning -------------------------------------------
  *
  * Matter commissioning is the peak RAM moment of this firmware's life: it

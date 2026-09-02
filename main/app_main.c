@@ -342,6 +342,7 @@ static void start_matter(void)
          * depends on matter_lock; calling it the other way round would make
          * the two components circular. See issue #13. */
         .commissioning_active = web_server_set_commissioning_active,
+        .stack_ready = web_server_note_stack_ready,
     };
 
     if (matter_lock_start(&hooks) != ESP_OK) {
@@ -445,7 +446,23 @@ void app_main(void)
         .mqtt_connected = mqtt_manager_is_connected,
         .unlock = access_control_unlock,
     };
-    ESP_ERROR_CHECK_WITHOUT_ABORT(web_server_start(&hooks));
+    /*
+     * Deferred only when Matter is actually up. Boot is the other memory peak:
+     * every fabric resumes its subscription at once, and holding the web
+     * server's ~16 kB through that is what runs a multi-fabric lock out of
+     * packet buffers and leaves controllers showing it as Updating.
+     *
+     * The condition is not a detail. A board with no Wi-Fi credentials never
+     * starts Matter, and on that board the web server is the setup portal --
+     * deferring it would leave a first-boot reader with nothing listening and
+     * no way to configure it. Same if Matter failed to start at all. In both
+     * cases the crowded moment this avoids is not happening anyway.
+     */
+    if (matter_lock_running()) {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(web_server_start_deferred(&hooks));
+    } else {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(web_server_start(&hooks));
+    }
 
     /* Last, so its prompt lands after the boot log rather than in the middle
      * of it. Works with no network at all, which is the state a board is in
