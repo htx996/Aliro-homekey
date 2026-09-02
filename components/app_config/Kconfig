@@ -170,4 +170,61 @@ config ALIRO_MAX_CREDENTIALS
         Foundation-phase credential store: a fixed in-memory table, populated
         at boot. Persistent storage and enrollment replace it later.
 
+if ALIRO_MATTER_ENABLE
+
+menu "Matter capacity"
+
+comment "How many people and HomeKeys this build supports. Fixed at build time --"
+comment "these size static arrays and a Matter attribute a phone reads once and"
+comment "expects to stay true, so there is no live web UI equivalent of this menu."
+
+config ALIRO_MAX_USERS
+    int "Maximum Matter Users"
+    range 5 250
+    default 5
+    help
+        One Matter "User" per person who can be individually named and
+        revoked -- this is what lets an admin remove one member without
+        touching anyone else's access. The Matter minimum is 5; the Aliro
+        specification example ships the same number, which is enough for one
+        household but not an organisation.
+
+        Cost is static RAM only, allocated once at boot regardless of how
+        many people are actually enrolled: roughly 50 bytes per user, so even
+        50 users is under 3 KB. This does not touch the runtime RAM that
+        commissioning and fabric subscriptions compete for -- see
+        ALIRO_MAX_ALIRO_KEYS and issue #13 for what does.
+
+        Raise this to your real membership count, not a guess at future
+        growth: NumberOfTotalUsersSupported is reported to every controller
+        as a fixed attribute, so shrinking it later without factory-resetting
+        the fabric can leave a phone's own bookkeeping out of step with what
+        the lock will actually accept.
+
+config ALIRO_MAX_ALIRO_KEYS
+    int "Maximum Aliro HomeKeys"
+    range 8 500
+    default 8
+    help
+        How many distinct phones can hold a HomeKey to this reader, evictable
+        and non-evictable combined -- this is the number that actually
+        matters for "how many people can tap in." Espressif's own reference
+        reader ships 8.
+
+        Cost is static RAM: roughly 70 bytes per slot (an uncompressed P-256
+        point plus bookkeeping), so 48 slots is under 3.5 KB. Storage is not
+        what has caused failures on this project -- NVS has room for
+        hundreds of these. What has failed is runtime RAM during
+        commissioning and fabric reconnection, which this number does not
+        add to: a stored-but-unused key slot costs nothing beyond the bytes
+        above, because unlike a fabric it never opens a session of its own.
+
+        Matter reports this number to every controller
+        (NumberOfAliroEndpointKeysSupported), so raise it to real headcount
+        rather than shrinking it later.
+
+endmenu
+
+endif # ALIRO_MATTER_ENABLE
+
 endmenu

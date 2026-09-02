@@ -51,7 +51,16 @@ static const char *const k_nvs_namespace = "mtr_lock";
 static const char *const k_nvs_users = "users";
 static const char *const k_nvs_credentials = "creds";
 
-static constexpr uint16_t kMaxUsers = 5;
+/*
+ * From Kconfig (components/app_config/Kconfig, "Matter capacity"), so a
+ * deployment past a handful of people -- a hackerspace, not a household --
+ * is a build-time setting rather than a source edit. matter_lock.cpp sets
+ * NumberOfTotalUsersSupported to the same value explicitly: esp-matter's own
+ * default for that attribute is a hardcoded 5, independent of this constant,
+ * and a controller told "5" while the store holds more would refuse to add
+ * a sixth person no matter how much room is actually here.
+ */
+static constexpr uint16_t kMaxUsers = CONFIG_ALIRO_MAX_USERS;
 static constexpr uint8_t kMaxCredentialsPerUser = 3;
 static constexpr uint16_t kMaxPinCredentials = 5;
 static constexpr size_t kMaxCredentialSize = 65; /* an uncompressed P-256 point */
@@ -342,6 +351,25 @@ extern "C" void matter_lock_store_forget_fabric(uint8_t fabric_index)
     if (credentials_changed || users_changed) {
         ESP_LOGI(k_tag, "fabric %u was removed; its users and credentials are gone", (unsigned)fabric_index);
     }
+}
+
+/*
+ * Compiled-in ceilings, for the web UI's capacity panel. These are fixed at
+ * build time -- kAliroEndpointKeysSupported and friends are constexpr, and
+ * CONFIG_MAX_FABRICS is a Kconfig symbol baked into the CHIP build -- so this
+ * reports what a rebuild would need to change, not something the running
+ * device can raise on request.
+ */
+extern "C" uint16_t matter_lock_store_max_users(void)
+{
+    return kMaxUsers;
+}
+
+extern "C" uint16_t matter_lock_store_max_aliro_keys(void)
+{
+    /* Evictable + non-evictable together: this is the real ceiling on distinct
+     * HomeKeys, independent of which slot type a given phone lands in. */
+    return kAliroEndpointKeysSupported * 2;
 }
 
 extern "C" size_t matter_lock_store_aliro_credential_count(void)

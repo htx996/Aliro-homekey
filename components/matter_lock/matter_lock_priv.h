@@ -34,6 +34,13 @@ void matter_lock_store_forget_fabric(uint8_t fabric_index);
  *         identity is serving nobody. */
 size_t matter_lock_store_aliro_credential_count(void);
 
+/** @brief Compiled-in ceiling on Matter Users (kMaxUsers). */
+uint16_t matter_lock_store_max_users(void);
+
+/** @brief Compiled-in ceiling on distinct Aliro HomeKeys, evictable and
+ *         non-evictable slots combined. */
+uint16_t matter_lock_store_max_aliro_keys(void);
+
 #ifdef __cplusplus
 }
 #endif

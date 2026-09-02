@@ -38,6 +38,26 @@ size_t matter_lock_fabric_count(void)
     return 0;
 }
 
+uint16_t matter_lock_max_fabrics(void)
+{
+    return 0;
+}
+
+uint16_t matter_lock_max_aliro_keys(void)
+{
+    return 0;
+}
+
+uint16_t matter_lock_aliro_key_count(void)
+{
+    return 0;
+}
+
+uint16_t matter_lock_max_users(void)
+{
+    return 0;
+}
+
 bool matter_lock_reader_configured(void)
 {
     return false;

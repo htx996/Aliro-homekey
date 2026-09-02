@@ -409,6 +409,15 @@ extern "C" esp_err_t matter_lock_start(const matter_lock_hooks_t *hooks)
     }
 
     cluster::door_lock::feature::user::config_t user_config;
+    /*
+     * esp-matter's own default for this is a hardcoded 5, independent of
+     * CONFIG_ALIRO_MAX_USERS and the store it actually has to agree with
+     * (matter_lock_store.cpp). Left alone, a build set to support 40 people
+     * would still report "5 users supported" to every controller -- Apple,
+     * Google and Samsung all enforce that attribute themselves and would
+     * refuse a sixth person no matter how much room the store has.
+     */
+    user_config.number_of_total_user_supported = CONFIG_ALIRO_MAX_USERS;
     if (cluster::door_lock::feature::user::add(lock_cluster, &user_config) != ESP_OK) {
         ESP_LOGE(k_tag, "user feature refused; Aliro provisioning will not work");
     }
@@ -528,6 +537,26 @@ extern "C" bool matter_lock_running(void)
 extern "C" size_t matter_lock_fabric_count(void)
 {
     return s_running ? chip::Server::GetInstance().GetFabricTable().FabricCount() : 0;
+}
+
+extern "C" uint16_t matter_lock_max_fabrics(void)
+{
+    return CONFIG_MAX_FABRICS;
+}
+
+extern "C" uint16_t matter_lock_max_aliro_keys(void)
+{
+    return matter_lock_store_max_aliro_keys();
+}
+
+extern "C" uint16_t matter_lock_aliro_key_count(void)
+{
+    return (uint16_t)matter_lock_store_aliro_credential_count();
+}
+
+extern "C" uint16_t matter_lock_max_users(void)
+{
+    return matter_lock_store_max_users();
 }
 
 extern "C" bool matter_lock_reader_configured(void)

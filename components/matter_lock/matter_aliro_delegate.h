@@ -7,6 +7,7 @@
 #pragma once
 
 #include <app/clusters/door-lock-server/door-lock-server.h>
+#include <sdkconfig.h>
 
 /**
  * @brief The Door Lock cluster's Aliro half, answered from our own reader.
@@ -48,8 +49,17 @@ private:
     AliroReaderDelegate() = default;
 };
 
+/*
+ * Set from Kconfig (components/app_config/Kconfig, "Matter capacity") rather
+ * than hardcoded, so a deployment that needs more than a handful of HomeKeys
+ * -- a hackerspace, not a household -- is a build-time setting, not a source
+ * edit. GetNumberOfAliroEndpointKeysSupported() already returns this value
+ * directly (matter_aliro_delegate.cpp), so the Matter attribute a controller
+ * reads always matches what the store can actually hold.
+ */
+
 /** @brief How many Aliro endpoint keys the credential store has room for. */
-constexpr uint16_t kAliroEndpointKeysSupported = 8;
+constexpr uint16_t kAliroEndpointKeysSupported = CONFIG_ALIRO_MAX_ALIRO_KEYS;
 
 /** @brief How many Aliro credential issuer keys the credential store holds. */
 constexpr uint16_t kAliroCredentialIssuerKeysSupported = 4;

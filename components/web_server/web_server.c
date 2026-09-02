@@ -670,7 +670,19 @@ static esp_err_t handle_get_status(httpd_req_t *req)
     if (matter_lock_available()) {
         cJSON_AddBoolToObject(matter, "running", matter_lock_running());
         cJSON_AddNumberToObject(matter, "fabrics", matter_lock_fabric_count());
+        cJSON_AddNumberToObject(matter, "aliro_keys", matter_lock_aliro_key_count());
         cJSON_AddBoolToObject(matter, "reader_configured", matter_lock_reader_configured());
+
+        /*
+         * Compiled-in ceilings, not live settings. CONFIG_MAX_FABRICS and the
+         * Aliro key-slot counts are fixed when this binary was built; the web
+         * UI uses them to say "you are at N of M", not to offer changing M --
+         * changing M means a different firmware.
+         */
+        cJSON *capacity = cJSON_AddObjectToObject(matter, "capacity");
+        cJSON_AddNumberToObject(capacity, "max_fabrics", matter_lock_max_fabrics());
+        cJSON_AddNumberToObject(capacity, "max_aliro_keys", matter_lock_max_aliro_keys());
+        cJSON_AddNumberToObject(capacity, "max_users", matter_lock_max_users());
 
         /*
          * Each fabric is a separate ecosystem, and each one shows this device

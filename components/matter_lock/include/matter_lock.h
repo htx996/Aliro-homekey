@@ -104,6 +104,18 @@ bool matter_lock_running(void);
 /** @brief Number of fabrics this device has been commissioned into. */
 size_t matter_lock_fabric_count(void);
 
+/** @brief Compiled-in ceiling on commissioned fabrics (CONFIG_MAX_FABRICS). Fixed at build time. */
+uint16_t matter_lock_max_fabrics(void);
+
+/** @brief Compiled-in ceiling on distinct Aliro HomeKeys. Fixed at build time. */
+uint16_t matter_lock_max_aliro_keys(void);
+
+/** @brief How many Aliro HomeKey slots are actually occupied right now. */
+uint16_t matter_lock_aliro_key_count(void);
+
+/** @brief Compiled-in ceiling on Matter Users (kMaxUsers). Fixed at build time. */
+uint16_t matter_lock_max_users(void);
+
 /** @brief One commissioned administrator. */
 typedef struct {
     uint8_t index;      /*!< Fabric index, as used to remove it */

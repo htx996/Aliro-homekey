@@ -513,6 +513,30 @@ main{padding:0 1.5rem 1.5rem;height:100%;overflow-y:auto;background:var(--color-
                   issued against. Every reader on the same lock group shares it.</p>
               </div>
             </div>
+            <div class="card hidden" id="capacity_card">
+              <div class="card-body">
+                <div class="card-head">
+                  <div class="icon-tile">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                         stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm6 0V9a2 2 0 00-2-2h-2a2 2 0 00-2 2v10a2 2 0 002 2h2a2 2 0 002-2zm6 0V5a2 2 0 00-2-2h-2a2 2 0 00-2 2v14a2 2 0 002 2h2a2 2 0 002-2z"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 class="card-title">Capacity</h2>
+                    <p class="caption">How much room is left before adding another HomeKey gets risky</p>
+                  </div>
+                </div>
+                <dl id="st_capacity"></dl>
+                <div id="capacity_warning" class="alert alert-warning hidden"></div>
+                <p class="text-xs text-muted">Fabrics and HomeKey slots are fixed when this firmware
+                  was built; adding more needs a different build, not a setting. Free memory is what
+                  actually decides whether one more ecosystem or credential will work -- it is measured
+                  live, and the number that matters is how low it has gone, not how much is free right
+                  now.</p>
+              </div>
+            </div>
             <div class="card hidden" id="matter_card">
               <div class="card-body">
                 <div class="card-head">
@@ -1570,6 +1594,78 @@ function rows(id, list) {
     .map(([k, v]) => `<div class="stat-row"><dt>${k}</dt><dd>${v}</dd></div>`).join("");
 }
 
+/*
+ * Fabrics and Aliro key slots are compiled-in ceilings (matter_lock.h /
+ * matter_lock_store.cpp), not settings -- reaching one means a different
+ * firmware, not a different value to type here. What this shows is how close
+ * the device actually is to trouble: usage against those fixed ceilings, and
+ * free heap against the level that has caused real failures this project has
+ * seen on hardware.
+ *
+ * 15 KB is not a guess. A board with two fabrics measured a low-water mark of
+ * 13 KB during ordinary reconnection, and boards that never got below that
+ * kept working; ones seen at 18 KB or less failed to finish commissioning or
+ * ran a Matter packet-buffer pool empty. The margin between "still working"
+ * and "silently failing" on this firmware is a few kilobytes, not an order of
+ * magnitude, so the warning band starts well above where things have actually
+ * broken.
+ */
+const HEAP_DANGER_KB = 15;
+const HEAP_WARN_KB = 25;
+
+function capacityMeter(label, used, max) {
+  if (!max) return "";
+  const pct = Math.min(100, Math.round((used / max) * 100));
+  const kind = pct >= 100 ? "error" : pct >= 80 ? "warning" : "success";
+  return `<div class="stat-row"><dt>${label}</dt>
+    <dd class="flex items-center gap-2">
+      <progress class="progress progress-${kind}" value="${used}" max="${max}" style="width:6rem"></progress>
+      <span>${used} / ${max}</span>
+    </dd></div>`;
+}
+
+function renderCapacity(matter, device) {
+  $("capacity_card").classList.remove("hidden");
+  const cap = matter.capacity;
+  const freeKb = device.free_heap / 1024;
+  const minKb = device.min_free_heap / 1024;
+
+  $("st_capacity").innerHTML =
+    capacityMeter("Fabrics (ecosystems)", matter.fabrics, cap.max_fabrics) +
+    capacityMeter("Aliro HomeKey slots", matter.aliro_keys ?? 0, cap.max_aliro_keys) +
+    `<div class="stat-row"><dt>Free heap</dt><dd>${freeKb.toFixed(1)} KB</dd></div>` +
+    `<div class="stat-row"><dt>Lowest ever seen</dt><dd>${minKb.toFixed(1)} KB</dd></div>`;
+
+  const fabricsFull = cap.max_fabrics && matter.fabrics >= cap.max_fabrics;
+  const heapDanger = minKb <= HEAP_DANGER_KB;
+  const heapWarn = minKb <= HEAP_WARN_KB;
+  const warn = $("capacity_warning");
+
+  if (fabricsFull) {
+    warn.className = "alert alert-error";
+    warn.innerHTML = `<div><b>No fabric slots left.</b> This build supports ${cap.max_fabrics}
+      commissioned ecosystems and all of them are in use. Adding another means removing one first,
+      or building firmware with a higher CONFIG_MAX_FABRICS -- which costs more memory per fabric
+      added, and this device is already ${heapWarn ? "close to" : "using"} its limit below.</div>`;
+  } else if (heapDanger) {
+    warn.className = "alert alert-error";
+    warn.innerHTML = `<div><b>Free memory has dropped to a level where commissioning and taps have
+      failed on this firmware.</b> Adding another fabric or credential now is likely to make that
+      worse, not better. Reboot before trying, and see
+      <a class="link" href="https://github.com/Ruhanpaco/Aliro-homekey/issues/13" target="_blank"
+         rel="noopener noreferrer">issue #13</a> for what is driving this.</div>`;
+  } else if (heapWarn) {
+    warn.className = "alert alert-warning";
+    warn.innerHTML = `<div><b>Free memory is getting tight.</b> Adding one more fabric or a busy
+      ecosystem reconnecting could push this into the range where taps and commissioning have
+      failed on other boards. Not urgent yet, worth watching.</div>`;
+  } else {
+    warn.classList.add("hidden");
+    return;
+  }
+  warn.classList.remove("hidden");
+}
+
 function renderStatus(s) {
   const online = s.network.connected;
   const ap = s.network.mode === "setup_ap";
@@ -1611,6 +1707,9 @@ function renderStatus(s) {
   ]);
 
     /* Absent in a build without Matter, which is the default one. */
+  if (s.matter && s.matter.available && s.matter.capacity) {
+    renderCapacity(s.matter, s.device);
+  }
   if (s.matter && s.matter.available) {
     $("matter_card").classList.remove("hidden");
     rows("st_matter", [
